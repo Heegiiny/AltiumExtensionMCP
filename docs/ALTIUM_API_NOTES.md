@@ -113,16 +113,90 @@ decompiled SDK (`D:\AD_Disasm\Altium Developer\Altium.SDK*`), decompiled system 
   `Client.AddServerView(view)` + `GetGUIManager().SetPanelVisibleInCurrentForm(name, true)`.
 - `ServerPanelView.Show()` is **not virtual** (do not override).
 
-## Not yet explored (next targets)
+## SDK structure: `Internal_*` vs `*Helper`
 
-- Schematic object model: `SCH.SchServer`, `ISch_Document`, `ISch_Iterator`, `ISch_Component`, `ISch_Pin`,
-  `ISch_Wire`, `ISch_NetLabel`, `ISch_Port`, `ISch_PowerObject`, `ISch_Parameter` — needs the document
-  to be open (`Client.OpenDocument("SCH", path)` returns `IServerDocument`; hidden open is possible).
-- PCB object model: `PCB.PCBServer`, `IPCB_Board` (`GetCurrentPCBBoard`, `GetPCBBoardByPath`),
-  `IPCB_BoardIterator`, `IPCB_Component`, `IPCB_Net`, `IPCB_LayerStack`, `IPCB_Rule`, DRC via
-  `IPCB_Board.RunDRC`/`DesignRuleChecker`.
-- Libraries: `IntegratedLibrary` module, `IWorkspace.DM_InstalledLibraries`, managed component links
-  (`IComponent.DM_VaultGUID/DM_ItemGUID/DM_RevisionGUID` — verify names in `EDP.IComponent`).
-- Notifications: `ServerModule.ReceiveNotificationImpl(INotification)` — could push
-  document-open/close/compile events (future: change feed / cache invalidation).
-- On-Prem / 365 Workspace connection state: `EDMSInterface` / `VaultExplorer` modules.
+Every interface in `Altium.SDK.Interfaces` declares raw COM members `Internal_Xxx()` returning `object`
+(`[EditorBrowsable(Never)]`). The typed API is in sibling static extension classes `<IName>Helper.cs`
+(`IClientHelper`, `IWorkspaceHelper`, `IProjectHelper`, `ISch_BasicContainerHelper`, `IPCB_BoardHelper`…).
+Look there first; e.g. `IClient.GetCurrentView()` is `IClientHelper.GetCurrentView(this IClient)`.
+Enum-set filters are built as `new TObjectSet(TObjectId.ePin)`.
+
+Additional `IClient`/`IClientAPI_Interface` facts: `GetServerModuleByName(string)`, `StartServer(name)`,
+`OpenDocument(kind, path)`, `IsDocumentOpen(path)`, `GetDocumentKindFromDocumentPath(path)`,
+`RegisterNotificationHandler(INotificationHandler)` / `RegisterFilteredNotificationHandler(handler, filter)`;
+special folders via `GlobalVars.ClientApi.SpecialFolder_AltiumExtensions()`, `..._AltiumSystem()`,
+`..._AltiumApplicationData()`, `..._MyDesigns()`, etc. `IServerModule.GetDocuments(i)` enumerates only *that
+module's* documents — use the workspace for the global view.
+
+`IProject` extras: `DM_CompileEx(bool, ref bool cancelled)`, `DM_TopLevelLogicalDocument()`,
+`DM_GetDocumentByDocumentId(string)`, `DM_CurrentProjectVariant()`, `DM_ConfigurationCount()/DM_Configurations(i)`,
+`DM_ErrorLevels(TErrorKind)`, `DM_HierarchyMode()`. `IWorkspace` extras: `DM_OpenProject(path, show)`,
+`DM_CloseProject(path)`, `DM_LoadProjectHidden(path)`, `DM_FreeDocumentsProject()`. `IDocument` extras:
+`DM_UniqueComponentCount()`, `DM_PartCount()`, `DM_BusCount()`, `DM_NetClassCount()`, `DM_ComponentClassCount()`,
+`DM_DifferentialPairCount()`, `DM_RuleCount()/DM_Rules(i)`, `DM_RoomCount()`, `DM_PhysicalInstancePath()`,
+`DM_ChannelIndex()`, `DM_LoadDocument()`. `INet` extras: `DM_AllNetItemCount()/DM_AllNetItems(i)`,
+`DM_SheetEntryCount()`, `DM_SignalType()`. `IParameter.DM_SetValue(string)` exists (phase 2 write path).
+
+## Researched, not yet implemented
+
+### Schematic object model (`SCH`)
+- Entry: `SCH.GlobalVars.SchServer` (= `Client.GetServerModuleByName("SCH") as ISch_ServerInterface`).
+  `GetCurrentSchDocument()`, `GetSchDocumentByPath(path)` (document must be open),
+  `LoadSchDocumentByPath(path)` (loads hidden), `GetSchDocumentBySchDocID(id)`.
+- Iteration (`ISch_BasicContainerHelper` / `ISch_IteratorHelper`) — works on a document, a component or any
+  container:
+  ```csharp
+  ISch_Iterator it = doc.SchIterator_Create();
+  try {
+      it.AddFilter_ObjectSet(new TObjectSet(TObjectId.eSchComponent));
+      it.SetState_IterationDepth(TIterationDepth.eIterateFirstLevel);   // or eIterateAllLevels
+      for (var o = it.FirstSchObject(); o != null; o = it.NextSchObject()) { ... }
+  } finally { doc.SchIterator_Destroy(ref it); }
+  ```
+  Real example: `D:\AD_Disasm\Code\System\Altium.PinsPanel\Altium\PinsPanel\Infrastructure\Extension.cs:35-61`.
+- `TObjectId` (SCH): `eWire`, `eNetLabel`, `eDesignator`, `eSchComponent`, `eParameter`, `ePin`, `ePort`,
+  `ePowerObject`, `eSheetSymbol`, `eBus`, `eJunction`…
+- Common: `GetState_ObjectId()`, `GetState_UniqueId()`, `GetState_Text()`, `GetState_Location()` → `DXP.Point {X,Y}`
+  (internal units, see below), `GetState_OwnerSchDocument()`, `GetState_SchParameterByName(name)`.
+- `ISch_Component`: `GetState_LibReference()`, `GetState_ComponentDescription()`, `GetState_SourceLibraryName()`,
+  `GetState_SchDesignator().GetState_Text()` (no direct string designator), `GetState_DisplayMode()`,
+  `GetState_CurrentPartID()`; parameters = iterate `eParameter` inside the component.
+- `ISch_Pin`: `GetState_Name()`, `GetState_Designator()`, `GetState_Electrical()`, `GetState_Orientation()`,
+  `GetState_PinLength()`, `OwnerSchComponent()`, `GetState_OwnerPartDisplayMode()`.
+- `ISch_Parameter`: `GetState_Name()`, `GetState_Text()` (value), `GetState_Description()`.
+- Plugin examples also use the parallel `Rt_Schematic`/`RT_PCB` interface set (from `Altium.Edp.Interfaces`);
+  prefer the `SCH`/`PCB` namespaces of `Altium.SDK.Interfaces` for new code (same method names, `TObjectSet`
+  passed by value instead of `ref`).
+
+### PCB object model (`PCB`)
+- Entry: `PCB.GlobalVars.PCBServer`; `GetCurrentPCBBoard()`, `GetPCBBoardByPath(path)`, `LoadPCBBoardByPath(path)`,
+  `GetCurrentPCBLibrary()`.
+- `IPCB_Board`: `GetState_FileName()`, `GetState_XOrigin()/YOrigin()`, `GetState_LayerStack()` /
+  `GetState_LayerStack_V7()`, `GetState_BoardOutline()`, `BoardIterator_Create()` / `BoardIterator_Destroy(ref it)`.
+- Iteration (`IPCB_AbstractIteratorHelper`): `AddFilter_ObjectSet(new TObjectSet(TObjectId.eComponentObject))`,
+  `AddFilter_LayerSet(...)`, `AddFilter_Method(TIterationMethod)`, `FirstPCBObject()/NextPCBObject()`.
+  Example: `Code\System\Altium.PCB.FullComponents\...\FullComponentListGenerator.cs:84-89`.
+- `TObjectId` (PCB): `eArcObject`, `ePadObject`, `eViaObject`, `eTrackObject`, `eTextObject`, `eFillObject`,
+  `eNetObject`, `eComponentObject`, `ePolyObject`, `eRegionObject`, `eBoardOutlineObject`.
+- `IPCB_Component`: `GetState_Name().GetState_Text()` (designator), `GetState_Comment().GetState_Text()`,
+  `GetState_Pattern()` (footprint), `GetState_Rotation()`, `GetState_SourceDesignator()`,
+  `GetState_SourceLibReference()`; position from `IPCB_Group.GetState_XLocation()/YLocation()`; layer from
+  `IPCB_Primitive.GetState_Layer()`. `IPCB_Primitive.GetState_Net()` / `GetState_Component()` give pad→net/component.
+- `IPCB_Net`: `GetState_Name()`, `GetState_PinCount()`. `IPCB_Pad.GetState_Name()`. `IPCB_Track`: `X1/Y1/X2/Y2/Width`.
+  `IPCB_Via`: `Size`, `HoleSize`, `LowLayer/HighLayer`. `IPCB_Polygon`: `Name`, `PointCount`, `Segments(i)`, `PolygonType`.
+- Units: internal coord = 1/10000 mil. `EDP.Utils.CoordToMils(int)`, `CoordToMMs(int)`, `MilsToCoord(double)`,
+  `MMsToCoord(double)` (`Altium.SDK\EDP\Utils.cs:65-80`). Same units apply to SCH locations.
+
+### Altium 365 / On-Prem connection
+- `EDP.Utils.GetDXPServerManager()` → `IEDMS_DXPServerManager`: `IsConnected()`, `GetSessionID()`,
+  `LoadConnectionOptions(out address, out user, ...)`, `GetIsCloudServerOption()`, `LoginWithUI(server)`,
+  `SilentLogin(...)`, `Logout()`. `EDP.Utils.GetVaultManager()` → `IEDMS_VaultManager`:
+  `GetInstalledVaultCount()`, `Internal_GetInstalledVault(i)`, `Internal_GetEnterpriseVault()`.
+  Loaded from `EDMSInterface.dll` export `API_GetEDMS_DXPServerManager`.
+
+### Still open
+- Libraries: `IntegratedLibrary` module, `IWorkspace.DM_InstalledLibraries(i)` (count returned 0 here), managed
+  component item/revision links on `EDP.IComponent`/`IPart` (names not yet confirmed).
+- Notifications: `ServerModule.ReceiveNotificationImpl(INotification)` — candidates for a change feed and for a
+  shutdown hook (ProcessExit does not fire in X2.EXE).
+- DRC/ERC invocation from .NET (`IPCB_Board` DRC entry points, `IProject.DM_CompileEx` for ERC).

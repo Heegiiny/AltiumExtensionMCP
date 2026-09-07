@@ -76,9 +76,11 @@ MSBuild, and Altium auto-loads it when started with `-RAltiumExtensionMCP:StartB
 
 1. Resolve auto-load on plain restart (caveat 1) or accept the `-R` launcher as the official path and
    document it as such in README (already done provisionally).
-2. Start ROADMAP item 1 (schematic object model): research `SCH.SchServer`/`ISch_Document` iterators in
-   `D:\AD_Disasm\Altium Developer\Altium.SDK.Interfaces\SCH\`, add `SchematicQueries` + DTOs +
-   `SchematicTools` (`altium_get_sheet`, `altium_list_sheet_objects` with type filter and bounding boxes).
+2. Start ROADMAP item 1 (schematic object model). The API research is already done — see
+   `ALTIUM_API_NOTES.md` § "Researched, not yet implemented" (iterator pattern, `TObjectId`s, units).
+   Add `SchematicQueries` + DTOs + `SchematicTools` (`altium_get_sheet`, `altium_list_sheet_objects` with type
+   filter and positions in mils). Use `SchServer.GetSchDocumentByPath` for open sheets and
+   `LoadSchDocumentByPath` (hidden) otherwise.
 3. Then PCB read (ROADMAP item 2).
 
 ## How to smoke-test in 60 seconds
