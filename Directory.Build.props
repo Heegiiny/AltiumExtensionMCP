@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project>
+  <PropertyGroup>
+    <!--
+      Altium SDK locations. Override from the command line or environment if your install differs:
+        dotnet build -p:AltiumSdkHome="..." -p:AltiumSystemHome="..."
+    -->
+    <AltiumProfileGuid Condition="'$(AltiumProfileGuid)' == ''">{295B10CB-19D8-40A7-B7A6-BA8034539C1F}</AltiumProfileGuid>
+    <AltiumProfileRoot Condition="'$(AltiumProfileRoot)' == ''">C:\ProgramData\Altium\Altium Designer $(AltiumProfileGuid)</AltiumProfileRoot>
+    <AltiumSdkHome Condition="'$(AltiumSdkHome)' == ''">$(AltiumProfileRoot)\Extensions\Altium Developer\SDK25</AltiumSdkHome>
+    <AltiumSystemHome Condition="'$(AltiumSystemHome)' == ''">C:\Program Files\Altium\AD26\System</AltiumSystemHome>
+    <AltiumExe Condition="'$(AltiumExe)' == ''">C:\Program Files\Altium\AD26\X2.EXE</AltiumExe>
+    <!-- Where the extension is deployed (Altium loads it from here). -->
+    <AltiumExtensionDeployDir Condition="'$(AltiumExtensionDeployDir)' == ''">$(AltiumProfileRoot)\Extensions\AltiumExtensionMCP</AltiumExtensionDeployDir>
+
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+</Project>

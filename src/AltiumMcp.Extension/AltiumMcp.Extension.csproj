@@ -1,0 +1,59 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <OutputType>Library</OutputType>
+    <RootNamespace>AltiumMcp.Extension</RootNamespace>
+    <!-- Must match EditorName / EditorExePath in Installation\AltiumExtensionMCP.ins and the folder registered in ExtensionsRegistry.xml -->
+    <AssemblyName>AltiumExtensionMCP</AssemblyName>
+    <UseWindowsForms>true</UseWindowsForms>
+    <!-- Altium.SDK.dll references WPF assemblies (WindowsBase); enabling WPF resolves them cleanly. -->
+    <UseWPF>true</UseWPF>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <EnableUnmanagedCodeDebugging>true</EnableUnmanagedCodeDebugging>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
+    <!-- Altium's DotNetSupport loads the DLL and resolves dependencies from the same folder. -->
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <!-- Deploy into the Altium Extensions folder on Debug builds unless disabled: dotnet build -p:DeployToAltium=false -->
+    <DeployToAltium Condition="'$(DeployToAltium)' == ''">true</DeployToAltium>
+    <!-- F5 in VS / VS Code launches Altium -->
+    <RunCommand>$(AltiumExe)</RunCommand>
+    <RunWorkingDirectory>$([System.IO.Path]::GetDirectoryName('$(AltiumExe)'))</RunWorkingDirectory>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AltiumMcp.Contracts\AltiumMcp.Contracts.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Altium SDK: helper classes (ServerModule, GlobalVars, Utils, panel/form bases). Not copied — host provides it. -->
+    <Reference Include="Altium.SDK">
+      <HintPath>$(AltiumSdkHome)\CSharp\Altium.SDK.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <!-- Altium SDK: COM interface definitions (DXP / EDP / SCH / PCB). Not copied — host provides it. -->
+    <Reference Include="Altium.SDK.Interfaces">
+      <HintPath>$(AltiumSystemHome)\Altium.SDK.Interfaces.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Altium expects the .ins/.rcs next to the DLL -->
+    <None Include="Installation\AltiumExtensionMCP.ins" Link="AltiumExtensionMCP.ins" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Installation\AltiumExtensionMCP.rcs" Link="AltiumExtensionMCP.rcs" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <Target Name="DeployToAltiumExtensions" AfterTargets="Build" Condition="'$(DeployToAltium)' == 'true'">
+    <ItemGroup>
+      <_DeployFiles Include="$(OutDir)**\*.*" Exclude="$(OutDir)**\*.xml" />
+    </ItemGroup>
+    <MakeDir Directories="$(AltiumExtensionDeployDir)" />
+    <Copy SourceFiles="@(_DeployFiles)" DestinationFiles="@(_DeployFiles->'$(AltiumExtensionDeployDir)\%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" ContinueOnError="true" />
+    <Message Importance="high" Text="AltiumExtensionMCP deployed to: $(AltiumExtensionDeployDir)" />
+  </Target>
+
+</Project>

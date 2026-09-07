@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>AltiumMcp.Contracts</RootNamespace>
+    <AssemblyName>AltiumMcp.Contracts</AssemblyName>
+    <Description>Shared bridge protocol and domain model between the Altium extension and the MCP server.</Description>
+  </PropertyGroup>
+
+</Project>

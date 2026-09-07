@@ -1,0 +1,3 @@
+//Menus and toolbars for AltiumExtensionMCP.
+//Intentionally empty in v0.1: commands are available via DXP » Run Process
+//(e.g. AltiumExtensionMCP:ShowBridgePanel) and the panel via View » Panels » AltiumMcpBridge.

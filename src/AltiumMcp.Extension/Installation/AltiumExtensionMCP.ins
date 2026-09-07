@@ -1,0 +1,26 @@
+ClientInsFile 1.0
+
+Server
+    EditorName        = 'AltiumExtensionMCP'
+    EditorExePath     = 'AltiumExtensionMCP.DLL'
+    EditorDescription = 'MCP bridge: exposes read-only Altium project data to LLM agents over a local HTTP API'
+    Version           = 'Version 0.1.0'
+    Date              = '07.09.2026'
+    HelpAboutInfo     = 'Altium Vibe-EE MCP bridge (read-only, phase 1).'
+    Copyright         = 'Copyright 2026'
+End
+
+PanelInfo
+    Name              = 'AltiumMcpBridge'
+    Category          = '&System'
+    Bitmap            = ''
+    Hotkey            = ''
+    ButtonVisible     = True
+    CanDockVertical   = True
+    CanDockHorizontal = True
+End
+
+Command Name = 'StartBridge'     LongSummary = 'Start the MCP bridge HTTP listener (no-op if already running)'  End
+Command Name = 'StopBridge'      LongSummary = 'Stop the MCP bridge HTTP listener'                             End
+Command Name = 'ShowBridgePanel' LongSummary = 'Show the MCP Bridge status panel'                              End
+Command Name = 'BridgeStatus'    LongSummary = 'Show a message box with the MCP bridge URL and statistics'     End

@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/AltiumMcp.Contracts/AltiumMcp.Contracts.csproj" />
+    <Project Path="src/AltiumMcp.Extension/AltiumMcp.Extension.csproj" />
+    <Project Path="src/AltiumMcp.Server/AltiumMcp.Server.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/AltiumMcp.Tests/AltiumMcp.Tests.csproj" />
+  </Folder>
+</Solution>
