@@ -1,0 +1,42 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Main>
+  <ExtensionServerOptions>
+    <Login />
+    <Password />
+    <ServiceURL />
+    <PublishToGlobalExtensionServer>false</PublishToGlobalExtensionServer>
+    <VaultGUID />
+  </ExtensionServerOptions>
+  <ExtensionOptions>
+    <ExtensionHRID>AltiumExtensionMCP</ExtensionHRID>
+    <ExtensionKind>ADServer</ExtensionKind>
+    <ExtensionSourceLocation>C:\Users\minat\AltiumExtensionMCP</ExtensionSourceLocation>
+    <ExtensionSourceRelativePath />
+    <ExtensionLanguage>C#</ExtensionLanguage>
+    <ExtensionIDEVersion>Visual Studio 2026</ExtensionIDEVersion>
+    <ExtemsionSDKVersion>25.0.1  (AD 25.0+)</ExtemsionSDKVersion>
+    <ExtensionCategoryGUID>793A1F67-0B22-4E01-A5DE-3176A1E8C60D</ExtensionCategoryGUID>
+    <ExtensionCategoryName>Extensions</ExtensionCategoryName>
+    <ExtensionLicensingMode>0</ExtensionLicensingMode>
+    <ExtensionPlatform>x64</ExtensionPlatform>
+    <ExtensionIsPublished>false</ExtensionIsPublished>
+    <AltiumUpdate>false</AltiumUpdate>
+  </ExtensionOptions>
+  <ExtensionVersionOptions>
+    <ExtensionTitle>AltiumExtensionMCP</ExtensionTitle>
+    <ExtensionReadMe />
+    <ExtensionKeywords />
+    <ExtensionHelp />
+    <ExtensionRequirements />
+    <ExtensionSmallIcon />
+    <ExtensionLargeIcon />
+    <ExtensionShortDescription />
+    <ExtensionLongDescription />
+    <ExtensionVersion>1.0.0.1</ExtensionVersion>
+    <ExtensionLifeCycleGUID></ExtensionLifeCycleGUID>
+    <ExtensionTopLevelFolder>C:\ProgramData\Altium\Altium Designer {C74E7F47-1ECF-4B15-A90E-197100278073}\Extensions\AltiumExtensionMCP</ExtensionTopLevelFolder>
+    <ExtensionSDKTicket>C:\ProgramData\Altium\Altium Designer {C74E7F47-1ECF-4B15-A90E-197100278073}\Extensions\Altium Developer\SDK25\SDK.Ticket</ExtensionSDKTicket>
+    <ReleaseNote />
+    <ExtensionPublisherName />
+  </ExtensionVersionOptions>
+</Main>

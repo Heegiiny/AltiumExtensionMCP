@@ -29,8 +29,20 @@ internal sealed class SchematicQueries
         TObjectId.eCrossSheetConnector, TObjectId.eBlanket, TObjectId.eCompileMask,
     };
 
-    /// <summary>Types that live inside components rather than on the sheet.</summary>
-    private static readonly HashSet<TObjectId> ChildTypes = new() { TObjectId.ePin, TObjectId.eParameter, TObjectId.eDesignator, TObjectId.eImplementation };
+    /// <summary>
+    /// Types that live inside a container object rather than directly on the sheet, mapped to their container type.
+    /// A first-level sheet iteration never yields them (verified live: sheet entries were missing until this map
+    /// existed), so the container is iterated and its children are reported with <c>owner</c> = container text.
+    /// </summary>
+    private static readonly Dictionary<TObjectId, TObjectId> ChildOwner = new()
+    {
+        [TObjectId.ePin] = TObjectId.eSchComponent,
+        [TObjectId.eParameter] = TObjectId.eSchComponent,
+        [TObjectId.eDesignator] = TObjectId.eSchComponent,
+        [TObjectId.eImplementation] = TObjectId.eSchComponent,
+        [TObjectId.eSheetEntry] = TObjectId.eSheetSymbol,
+        [TObjectId.eHarnessEntry] = TObjectId.eHarnessConnector,
+    };
 
     private static readonly Dictionary<string, TObjectId> TypeByName = BuildTypeMap();
 
@@ -97,47 +109,49 @@ internal sealed class SchematicQueries
             }
         }
 
-        var topLevel = new TObjectSet(wanted.Where(t => !ChildTypes.Contains(t)).ToArray());
-        var children = new TObjectSet(wanted.Where(ChildTypes.Contains).ToArray());
-        bool listComponents = wanted.Contains(TObjectId.eSchComponent);
-        if (children.Count > 0)
+        // Sheet-level objects requested directly, plus the containers whose children were requested.
+        var wantedTopLevel = new HashSet<TObjectId>(wanted.Where(t => !ChildOwner.ContainsKey(t)));
+        var childrenByOwner = new Dictionary<TObjectId, List<TObjectId>>();
+        foreach (TObjectId child in wanted.Where(ChildOwner.ContainsKey))
         {
-            topLevel.Add(TObjectId.eSchComponent);
+            TObjectId owner = ChildOwner[child];
+            if (!childrenByOwner.TryGetValue(owner, out List<TObjectId>? list))
+            {
+                childrenByOwner[owner] = list = new List<TObjectId>();
+            }
+
+            list.Add(child);
         }
 
+        var iterateSet = new TObjectSet(wantedTopLevel.Union(childrenByOwner.Keys).ToArray());
+
         var all = new List<SchObject>();
-        if (topLevel.Count > 0)
+        if (iterateSet.Count > 0)
         {
-            foreach (ISch_BasicContainer o in Iterate(doc, topLevel, TIterationDepth.eIterateFirstLevel))
+            foreach (ISch_BasicContainer o in Iterate(doc, iterateSet, TIterationDepth.eIterateFirstLevel))
             {
                 TObjectId id = Safe(() => o.GetState_ObjectId());
-                if (id == TObjectId.eSchComponent && o is ISch_Component comp)
-                {
-                    SchObject c = ToObject(o, id, null);
-                    if (listComponents && Matches(p.Filter, c))
-                    {
-                        all.Add(c);
-                    }
-
-                    if (children.Count > 0)
-                    {
-                        foreach (ISch_BasicContainer child in Iterate(comp, children, TIterationDepth.eIterateAllLevels))
-                        {
-                            SchObject so = ToObject(child, Safe(() => child.GetState_ObjectId()), c.Text);
-                            if (Matches(p.Filter, so))
-                            {
-                                all.Add(so);
-                            }
-                        }
-                    }
-
-                    continue;
-                }
-
                 SchObject obj = ToObject(o, id, null);
-                if (Matches(p.Filter, obj))
+                if (wantedTopLevel.Contains(id) && Matches(p.Filter, obj))
                 {
                     all.Add(obj);
+                }
+
+                if (childrenByOwner.TryGetValue(id, out List<TObjectId>? childTypes))
+                {
+                    foreach (ISch_BasicContainer child in Iterate(o, new TObjectSet(childTypes.ToArray()), TIterationDepth.eIterateAllLevels))
+                    {
+                        if (child is ISch_Pin pin && o is ISch_Component owner && !PinBelongsToActiveMode(pin, owner))
+                        {
+                            continue;
+                        }
+
+                        SchObject so = ToObject(child, Safe(() => child.GetState_ObjectId()), obj.Text);
+                        if (Matches(p.Filter, so))
+                        {
+                            all.Add(so);
+                        }
+                    }
                 }
             }
         }
@@ -254,7 +268,7 @@ internal sealed class SchematicQueries
 
         foreach (ISch_BasicContainer o in Iterate(found, new TObjectSet(TObjectId.ePin), TIterationDepth.eIterateFirstLevel))
         {
-            if (o is not ISch_Pin pin)
+            if (o is not ISch_Pin pin || !PinBelongsToActiveMode(pin, found))
             {
                 continue;
             }
@@ -377,6 +391,13 @@ internal sealed class SchematicQueries
 
             case TObjectId.eSheetEntry when o is ISch_SheetEntry se:
                 so.Text = Safe(() => se.GetState_Name());
+                Put(a, "ioType", EnumName(Safe(() => se.GetState_IOType().ToString()))?.Replace("Port", string.Empty));
+                Put(a, "side", EnumName(Safe(() => se.GetState_Side().ToString())));
+                break;
+
+            case TObjectId.eHarnessEntry when o is ISch_HarnessEntry he:
+                so.Text = Safe(() => he.GetState_Name());
+                Put(a, "side", EnumName(Safe(() => he.GetState_Side().ToString())));
                 break;
 
             case TObjectId.eSheetSymbol when o is ISch_SheetSymbol ss:
@@ -460,6 +481,17 @@ internal sealed class SchematicQueries
     }
 
     // ---- helpers --------------------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// A component stores one pin set per symbol display mode (alternate symbols); iterating a component yields all
+    /// of them (verified live: a 2-pin capacitor returned 4 pins). Keep only the pins of the active display mode.
+    /// </summary>
+    private static bool PinBelongsToActiveMode(ISch_Pin pin, ISch_Component owner)
+    {
+        int mode = Safe(() => owner.GetState_DisplayMode());
+        int pinMode = Safe(() => pin.GetState_OwnerPartDisplayMode());
+        return pinMode == mode;
+    }
 
     private static ISch_ServerInterface SchServer
     {

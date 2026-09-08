@@ -210,6 +210,7 @@ internal sealed class PcbQueries
         p ??= new ListPcbNetsParams();
         var ctx = BoardContext.Resolve(p.DocumentPath, p.LoadIfClosed);
 
+        Dictionary<string, int> unrouted = CountUnroutedByNet(ctx);
         var all = new List<PcbNetSummary>();
         foreach (IPCB_Primitive prim in ctx.Iterate(new TObjectSet(TObjectId.eNetObject), TIterationMethod.eProcessAll))
         {
@@ -218,7 +219,7 @@ internal sealed class PcbQueries
                 continue;
             }
 
-            PcbNetSummary s = ToNetSummary(net);
+            PcbNetSummary s = ToNetSummary(net, unrouted);
             if (FilterMatcher.Matches(p.Filter, s.Name))
             {
                 all.Add(s);
@@ -257,7 +258,7 @@ internal sealed class PcbQueries
         }
 
         string name = Safe(() => net.GetState_Name()) ?? p.Net;
-        var d = new PcbNetDetail { DocumentPath = ctx.Path, Summary = ToNetSummary(net) };
+        var d = new PcbNetDetail { DocumentPath = ctx.Path, Summary = ToNetSummary(net, CountUnroutedByNet(ctx)) };
         var layers = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
         double length = 0;
 
@@ -378,14 +379,19 @@ internal sealed class PcbQueries
         string? netFilter = string.IsNullOrWhiteSpace(p.Net) ? null : p.Net.Trim();
 
         var all = new List<PcbPrimitive>();
+        var seenLayers = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+        bool layerMatched = false;
         foreach (IPCB_Primitive prim in ctx.Iterate(wanted, p.FreeOnly ? TIterationMethod.eProcessFree : TIterationMethod.eProcessAll))
         {
             TV6_Layer layer = Safe(() => prim.GetState_Layer());
             string layerName = ctx.LayerName(layer);
+            seenLayers.Add($"{layerName} ({LayerId(layer)})");
             if (layerFilter != null && Normalize(layerName) != layerFilter && Normalize(LayerId(layer)) != layerFilter)
             {
                 continue;
             }
+
+            layerMatched = true;
 
             IPCB_Net? net = Safe(() => prim.GetState_Net());
             string? netName = net == null ? null : NullIfEmpty(Safe(() => net.GetState_Name()));
@@ -395,6 +401,20 @@ internal sealed class PcbQueries
             }
 
             all.Add(ToPrimitive(ctx, prim, layerName, netName));
+        }
+
+        if (layerFilter != null && !layerMatched)
+        {
+            // Distinguish "valid layer, nothing on it for these types" from a typo: a name that matches no layer
+            // carrying any of the requested primitive types is almost always a typo (live finding: silently
+            // returning an empty list misled the analysis).
+            throw new BridgeException(BridgeErrorCodes.InvalidParams,
+                $"Layer '{p.Layer}' matched none of the layers that carry the requested primitive types on this board.",
+                new Dictionary<string, string>
+                {
+                    ["layersWithMatchingPrimitives"] = string.Join(", ", seenLayers),
+                    ["hint"] = "Use a layer name from pcb.getBoard (e.g. 'Top Layer') or an id (e.g. 'TopLayer', 'TopOverlay', 'Mechanical1').",
+                });
         }
 
         int limit = Math.Clamp(p.Limit <= 0 ? 200 : p.Limit, 1, MaxLimit);
@@ -456,15 +476,43 @@ internal sealed class PcbQueries
         };
     }
 
-    private static PcbNetSummary ToNetSummary(IPCB_Net net) => new()
+    private static PcbNetSummary ToNetSummary(IPCB_Net net, IReadOnlyDictionary<string, int> unroutedByNet)
     {
-        Name = Safe(() => net.GetState_Name()) ?? string.Empty,
-        PinCount = Safe(() => net.GetState_PinCount()),
-        ViaCount = Safe(() => net.GetState_ViaCount()),
-        RoutedLengthMils = Mils(Safe(() => net.GetState_RoutedLength())),
-        InDifferentialPair = Safe(() => net.GetState_InDifferentialPair()),
-        ConnectivelyInvalid = Safe(() => net.GetState_ConnectivelyInvalid()),
-    };
+        string name = Safe(() => net.GetState_Name()) ?? string.Empty;
+        return new PcbNetSummary
+        {
+            Name = name,
+            PinCount = Safe(() => net.GetState_PinCount()),
+            ViaCount = Safe(() => net.GetState_ViaCount()),
+            RoutedLengthMils = Mils(Safe(() => net.GetState_RoutedLength())),
+            InDifferentialPair = Safe(() => net.GetState_InDifferentialPair()),
+            UnroutedConnectionCount = unroutedByNet.TryGetValue(name, out int u) ? u : 0,
+            ConnectivityStale = Safe(() => net.GetState_ConnectivelyInvalid()),
+        };
+    }
+
+    /// <summary>
+    /// Ratsnest lines (<see cref="TObjectId.eConnectionObject"/>) per net name = unrouted connections. Live finding:
+    /// <c>IPCB_Net.GetState_ConnectivelyInvalid()</c> is true for every net of a board loaded hidden, so it cannot be
+    /// used as an "unrouted" indicator; connection objects can.
+    /// </summary>
+    private static Dictionary<string, int> CountUnroutedByNet(BoardContext ctx)
+    {
+        var result = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (IPCB_Primitive prim in ctx.Iterate(new TObjectSet(TObjectId.eConnectionObject), TIterationMethod.eProcessAll))
+        {
+            IPCB_Net? n = Safe(() => prim.GetState_Net());
+            string? name = n == null ? null : Safe(() => n.GetState_Name());
+            if (string.IsNullOrEmpty(name))
+            {
+                continue;
+            }
+
+            result[name] = result.TryGetValue(name, out int c) ? c + 1 : 1;
+        }
+
+        return result;
+    }
 
     private static PcbPrimitive ToPrimitive(BoardContext ctx, IPCB_Primitive prim, string layerName, string? netName)
     {

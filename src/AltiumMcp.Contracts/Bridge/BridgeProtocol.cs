@@ -96,6 +96,8 @@ public static class BridgeMethods
     public const string WorkspaceGetInfo = "workspace.getInfo";
     public const string WorkspaceListProjects = "workspace.listProjects";
     public const string WorkspaceListOpenDocuments = "workspace.listOpenDocuments";
+    /// <summary>Opens/shows a document in its editor (editor state only; never modifies design data).</summary>
+    public const string WorkspaceOpenDocument = "workspace.openDocument";
 
     // project.* — a single project (default: focused project)
     public const string ProjectGetStructure = "project.getStructure";
@@ -121,7 +123,7 @@ public static class BridgeMethods
     public static readonly IReadOnlyList<string> All = new[]
     {
         SystemPing, SystemGetEnvironment,
-        WorkspaceGetInfo, WorkspaceListProjects, WorkspaceListOpenDocuments,
+        WorkspaceGetInfo, WorkspaceListProjects, WorkspaceListOpenDocuments, WorkspaceOpenDocument,
         ProjectGetStructure, ProjectListComponents, ProjectGetComponent, ProjectListNets, ProjectGetNet,
         SchGetSheet, SchListObjects, SchGetComponent,
         PcbGetBoard, PcbListComponents, PcbGetComponent, PcbListNets, PcbGetNet, PcbListRules, PcbListPrimitives,

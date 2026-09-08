@@ -17,6 +17,8 @@
     <!-- Altium's DotNetSupport loads the DLL and resolves dependencies from the same folder. -->
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
     <EnableDynamicLoading>true</EnableDynamicLoading>
+    <!-- Enables the environment check in Directory.Build.targets (paths come from Environment.local.props). -->
+    <RequiresAltiumSdk>true</RequiresAltiumSdk>
     <!-- Deploy into the Altium Extensions folder on Debug builds unless disabled: dotnet build -p:DeployToAltium=false -->
     <DeployToAltium Condition="'$(DeployToAltium)' == ''">true</DeployToAltium>
     <!-- F5 in VS / VS Code launches Altium -->
@@ -48,6 +50,7 @@
   </ItemGroup>
 
   <Target Name="DeployToAltiumExtensions" AfterTargets="Build" Condition="'$(DeployToAltium)' == 'true'">
+    <Error Condition="'$(AltiumExtensionDeployDir)' == ''" Text="AltiumExtensionDeployDir is empty; run tools\Detect-AltiumEnvironment.ps1 or build with -p:DeployToAltium=false." />
     <ItemGroup>
       <_DeployFiles Include="$(OutDir)**\*.*" Exclude="$(OutDir)**\*.xml" />
     </ItemGroup>

@@ -80,3 +80,20 @@ public sealed class ProjectListResult
     public List<ProjectSummary> Projects { get; set; } = new();
     public string? FocusedProjectPath { get; set; }
 }
+
+public sealed class OpenDocumentParams
+{
+    /// <summary>Full path of the document to open/show in its editor.</summary>
+    public string DocumentPath { get; set; } = string.Empty;
+    /// <summary>When true (default) the editor tab is focused; false shows it without stealing focus.</summary>
+    public bool Focus { get; set; } = true;
+}
+
+public sealed class OpenDocumentResult
+{
+    public DocumentRef Document { get; set; } = new();
+    /// <summary>True when the document was already open in an editor before this call.</summary>
+    public bool WasAlreadyOpen { get; set; }
+    public bool IsOpenInEditor { get; set; }
+    public bool IsFocused { get; set; }
+}

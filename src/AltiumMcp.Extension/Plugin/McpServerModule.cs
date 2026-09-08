@@ -209,6 +209,7 @@ public sealed class McpServerModule : ServerModule
         _router.Register(BridgeMethods.WorkspaceGetInfo, _ => workspace.GetInfo());
         _router.Register(BridgeMethods.WorkspaceListProjects, _ => workspace.ListProjects());
         _router.Register(BridgeMethods.WorkspaceListOpenDocuments, _ => workspace.ListOpenDocuments());
+        _router.Register<OpenDocumentParams>(BridgeMethods.WorkspaceOpenDocument, p => workspace.OpenDocument(p));
 
         _router.Register<ProjectQueryParams>(BridgeMethods.ProjectGetStructure, p => project.GetStructure(p));
         _router.Register<ListComponentsParams>(BridgeMethods.ProjectListComponents, p => project.ListComponents(p));

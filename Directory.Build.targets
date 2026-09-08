@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project>
+  <!--
+    Fail fast with an actionable message when a project that needs the Altium SDK is built on a
+    machine whose environment has not been detected yet (no Environment.local.props, or stale one).
+    Only projects that set <RequiresAltiumSdk>true</RequiresAltiumSdk> are checked, so
+    `dotnet test` (Contracts/Server/Tests) works on any machine without Altium.
+  -->
+  <Target Name="CheckAltiumEnvironment" BeforeTargets="ResolveAssemblyReferences;CoreCompile" Condition="'$(RequiresAltiumSdk)' == 'true'">
+    <PropertyGroup>
+      <_AltiumSdkDll>$(AltiumSdkHome)\CSharp\Altium.SDK.dll</_AltiumSdkDll>
+      <_AltiumInterfacesDll>$(AltiumSystemHome)\Altium.SDK.Interfaces.dll</_AltiumInterfacesDll>
+      <_AltiumEnvHint>Run  powershell -File tools\Detect-AltiumEnvironment.ps1  (writes Environment.local.props; see docs/ENVIRONMENT.md) or pass -p:AltiumProfileGuid=... -p:AltiumProgramsHome=...</_AltiumEnvHint>
+    </PropertyGroup>
+    <Error Condition="'$(AltiumSdkHome)' == ''" Text="Altium SDK location unknown (AltiumProfileGuid/AltiumSdkHome not set). $(_AltiumEnvHint)" />
+    <Error Condition="'$(AltiumSdkHome)' != '' and !Exists('$(_AltiumSdkDll)')" Text="Altium SDK not found at '$(_AltiumSdkDll)'. $(_AltiumEnvHint)" />
+    <Error Condition="!Exists('$(_AltiumInterfacesDll)')" Text="Altium.SDK.Interfaces.dll not found at '$(_AltiumInterfacesDll)' (AltiumProgramsHome='$(AltiumProgramsHome)'). $(_AltiumEnvHint)" />
+    <Message Importance="high" Text="Altium environment: exe=$(AltiumExe) profile=$(AltiumProfileGuid) sdk=$(AltiumSdkHome)" />
+  </Target>
+</Project>

@@ -14,7 +14,8 @@ using Microsoft.Extensions.Logging;
 //   AltiumMcp.Server                          → MCP server over stdio (for Claude Desktop / Cursor / Claude Code)
 //   AltiumMcp.Server --health                 → print bridge health (debug)
 //   AltiumMcp.Server --diag                   → print bridge discovery diagnostics (debug, does not touch Altium)
-//   AltiumMcp.Server --call <method> [json]   → call a bridge method directly and print the JSON result (debug)
+//   AltiumMcp.Server --call <method> [json]   → call a bridge method directly and print the JSON result (debug);
+//                                              json may be inline, @file.json, or - (read from stdin)
 //   AltiumMcp.Server --methods                → list bridge method names known to the contracts
 
 if (args.Length > 0)
@@ -87,7 +88,29 @@ internal static class DebugCli
                     JsonElement? p = null;
                     if (args.Length > 2 && !string.IsNullOrWhiteSpace(args[2]))
                     {
-                        p = JsonDocument.Parse(args[2]).RootElement.Clone();
+                        // Params: inline JSON, "@file.json", or "-" (stdin). The file/stdin forms avoid the
+                        // shell quoting problems Windows PowerShell has with backslashes and quotes in JSON.
+                        string raw = args[2];
+                        if (raw == "-")
+                        {
+                            raw = await Console.In.ReadToEndAsync();
+                        }
+                        else if (raw.StartsWith('@'))
+                        {
+                            raw = await File.ReadAllTextAsync(raw.Substring(1));
+                        }
+
+                        try
+                        {
+                            p = JsonDocument.Parse(raw).RootElement.Clone();
+                        }
+                        catch (JsonException ex)
+                        {
+                            Console.Error.WriteLine($"Invalid JSON params: {ex.Message}");
+                            Console.Error.WriteLine($"Received: {raw}");
+                            Console.Error.WriteLine("Tip: pass @file.json or '-' (stdin) instead of inline JSON from PowerShell.");
+                            return 2;
+                        }
                     }
 
                     Print(await client.CallAsync(args[1], p));

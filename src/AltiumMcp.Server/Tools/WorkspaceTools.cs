@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Threading;
 using System.Threading.Tasks;
 using AltiumMcp.Contracts.Bridge;
+using AltiumMcp.Contracts.Model;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 
@@ -32,4 +33,13 @@ public sealed class WorkspaceTools
     [Description("Lists documents currently open in Altium editors (schematic sheets, PCBs, libraries, text...), with kind, modified flag, owning project path and which one is focused.")]
     public Task<CallToolResult> ListOpenDocuments(CancellationToken ct) =>
         ToolResults.Run(() => _bridge.CallAsync(BridgeMethods.WorkspaceListOpenDocuments, null, ct));
+
+    [McpServerTool(Name = "altium_open_document", ReadOnly = false, Idempotent = true, Destructive = false, OpenWorld = false, Title = "Open document in editor")]
+    [Description("Opens a schematic sheet, PCB or other document in its Altium editor (or brings an already open one forward). Changes editor state only — never modifies design data. Use it so that sch.*/pcb.* tools can default to the active document and before capturing images. Returns the document ref plus wasAlreadyOpen/isOpenInEditor/isFocused.")]
+    public Task<CallToolResult> OpenDocument(
+        [Description("Full path of the document (from project.getStructure / altium_list_open_documents).")] string documentPath,
+        [Description("Focus the editor tab (default true). false shows the document without stealing focus.")] bool focus = true,
+        CancellationToken ct = default) =>
+        ToolResults.Run(() => _bridge.CallAsync(BridgeMethods.WorkspaceOpenDocument,
+            new OpenDocumentParams { DocumentPath = documentPath, Focus = focus }, ct));
 }
