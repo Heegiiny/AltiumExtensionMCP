@@ -1,6 +1,6 @@
 ---
 name: altium-project-analysis
-description: Procedure for analysing an Altium Designer project through the altium-mcp tools (read-only). Use when asked to inspect, review, summarise, or answer questions about a project, its sheets, components, nets, parameters or compile violations that is open in a running Altium Designer.
+description: Procedure for analysing an Altium Designer project through the altium-mcp tools (read-only). Use when asked to inspect, review, summarise, or answer questions about a project, its sheets (objects, positions), components, nets, parameters, compile violations, or its PCB (placement, layer stack, nets/routing, rules, DRC markers) in a running Altium Designer.
 ---
 
 # Altium project analysis (read-only)
@@ -73,28 +73,63 @@ Nets:
 - Suspicious nets: `pinCount` <= 1, auto-generated names (`NetU1_11`) on pins that should be connected,
   nets with `powerObjectCount` > 0 but no power pins.
 
-## 5. Verify before you conclude
+## 5. Sheet-level questions (schematic object model)
+
+Use the `altium_*sheet*` tools when the question is about *where* something is drawn or about
+graphical objects that the compiled model does not carry (wires, net labels, ports, text notes).
+
+- `altium_get_sheet` first: size, `objectCounts` (how many wires/labels/ports), sheet parameters
+  (title, revision). `documentPath` comes from `altium_get_project_structure`; closed sheets are
+  loaded hidden (`wasLoadedOnDemand=true`) - this does not modify anything.
+- `altium_list_sheet_objects` with `types` narrowed to what you need (`["NetLabel","Port","PowerObject"]`
+  for connectivity by name; `["Component"]` for placement; `["Wire"]` only when tracing geometry -
+  wires carry `vertices` and are verbose). `filter` matches `text` (label/port name, designator).
+- `altium_get_sheet_component` for one part as drawn: `designator` may be `U1A`/`U1B` (multi-part),
+  pins with sheet coordinates and hidden-net names, all parameters with visibility flags,
+  `managed` GUIDs when the part comes from a Workspace/Vault.
+- Coordinates are mils from the sheet's bottom-left corner; the compiled component `id` ends with
+  the sheet component `id` (UniqueId), which is how you map between the two models.
+
+## 6. Board-level questions (PCB object model)
+
+- `altium_get_board` first: outline size, `layerStack` (signal/plane/dielectric order, copper
+  thickness), `objectCounts`, `violationCount` (current DRC markers), `classes`. The `.PcbDoc` path is
+  `primaryImplementationDocument` from the structure call.
+- Placement: `altium_list_pcb_components` (filter by designator/footprint, `layer="Bottom"` for
+  bottom-side parts); `altium_get_pcb_component` for pads with nets and geometry. `sourceUniqueId`
+  equals the compiled component `id` - use it, not the designator, to join schematic and PCB data
+  in multi-channel designs.
+- Connectivity/routing: `altium_list_pcb_nets` (`connectivelyInvalid=true` = unrouted/broken in the
+  editor's view, `routedLengthMils`), `altium_get_pcb_net` for pads, layers used and track length.
+  Nets present in `altium_list_nets` but absent here mean the PCB is out of sync with the schematic.
+- Rules: `altium_list_pcb_rules` (filter `"Clearance"`, `"Width"`, `"Routing*"`); `summary` is the
+  constraint text; higher `priority` number = lower priority.
+- Primitives: `altium_list_pcb_primitives` is the heavy tool. Always give `layer` and/or `net`, keep
+  `limit` <= 200 and page by `offset`. `types=["Violation"]` lists DRC markers with descriptions.
+  Coordinates are mils relative to the board origin - the same numbers the PCB editor shows.
+
+## 7. Verify before you conclude
 
 - Cross-check at least one claim two ways (e.g. a pin's net from `altium_get_component` and the
-  same pin in `altium_get_net`).
+  same pin in `altium_get_net`; a PCB pad's net vs the compiled pin's net).
 - Counts: `total` in list results is the authoritative count for the filter; do not count
   returned items when `returned < total`.
-- Compile violations reported by Altium are evidence; your own inferences are hypotheses. Label them.
-- When the answer depends on the PCB (placement, routing, layers, DRC) say so: **PCB data is not
-  exposed yet** in this MCP version; do not infer PCB facts from the schematic model.
+- Compile violations and DRC markers reported by Altium are evidence; your own inferences are
+  hypotheses. Label them.
+- Do not infer PCB facts from the schematic model or vice versa; read the model the question is about.
 
-## 6. When you may not say "analysis complete"
+## 8. When you may not say "analysis complete"
 
 Do not declare a project fully analysed if any of these hold:
 
 - the project was not compiled (`isCompiled=false`) or you did not read `violations`;
 - you paged through fewer items than `total` for a list you are drawing conclusions from;
-- the question touches PCB, library health, variants or Workspace/server state (not available yet);
+- the question touches library health, variants or Workspace/server state (not available yet);
 - any tool call returned an error you did not resolve.
 
 Say what you covered, what you did not, and which tool/data would be needed.
 
-## 7. Output style for the user
+## 9. Output style for the user
 
 Lead with the answer, then the evidence (designators, net names, counts) so the engineer can
 check it in Altium. Keep raw JSON out of the reply unless asked.
