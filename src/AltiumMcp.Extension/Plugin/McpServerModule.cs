@@ -215,6 +215,20 @@ public sealed class McpServerModule : ServerModule
         _router.Register<GetComponentParams>(BridgeMethods.ProjectGetComponent, p => project.GetComponent(p));
         _router.Register<ListNetsParams>(BridgeMethods.ProjectListNets, p => project.ListNets(p));
         _router.Register<GetNetParams>(BridgeMethods.ProjectGetNet, p => project.GetNet(p));
+
+        var sch = new SchematicQueries();
+        _router.Register<SheetQueryParams>(BridgeMethods.SchGetSheet, p => sch.GetSheet(p));
+        _router.Register<ListSheetObjectsParams>(BridgeMethods.SchListObjects, p => sch.ListObjects(p));
+        _router.Register<GetSchComponentParams>(BridgeMethods.SchGetComponent, p => sch.GetComponent(p));
+
+        var pcb = new PcbQueries();
+        _router.Register<BoardQueryParams>(BridgeMethods.PcbGetBoard, p => pcb.GetBoard(p));
+        _router.Register<ListPcbComponentsParams>(BridgeMethods.PcbListComponents, p => pcb.ListComponents(p));
+        _router.Register<GetPcbComponentParams>(BridgeMethods.PcbGetComponent, p => pcb.GetComponent(p));
+        _router.Register<ListPcbNetsParams>(BridgeMethods.PcbListNets, p => pcb.ListNets(p));
+        _router.Register<GetPcbNetParams>(BridgeMethods.PcbGetNet, p => pcb.GetNet(p));
+        _router.Register<ListPcbRulesParams>(BridgeMethods.PcbListRules, p => pcb.ListRules(p));
+        _router.Register<ListPcbPrimitivesParams>(BridgeMethods.PcbListPrimitives, p => pcb.ListPrimitives(p));
     }
 
     private static string? SafeString(Func<string?> f)

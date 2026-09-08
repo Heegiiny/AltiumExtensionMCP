@@ -39,7 +39,9 @@ builder.Services
     .WithStdioServerTransport()
     .WithTools<ConnectionTools>()
     .WithTools<WorkspaceTools>()
-    .WithTools<ProjectTools>();
+    .WithTools<ProjectTools>()
+    .WithTools<SchematicTools>()
+    .WithTools<PcbTools>();
 
 await builder.Build().RunAsync();
 return 0;

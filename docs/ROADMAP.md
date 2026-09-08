@@ -12,12 +12,20 @@ Done (2026-09-07):
 - [x] Verified live on *Bluetooth Sentinel* (AD 26.3.0): all 11 tools, < 30 ms per call.
 - [x] 27 unit tests (protocol, discovery, filter, error mapping). Skill `altium-project-analysis`.
 
+Implemented 2026-09-08, **pending live verification** (needs the extension loaded in AD26 once):
+- [~] **Schematic object model** (`SCH` server): `altium_get_sheet`, `altium_list_sheet_objects`
+      (components, pins, wires with vertices, net labels, ports, power objects, sheet symbols/entries,
+      buses, junctions, text; positions in mils), `altium_get_sheet_component` (parameters, pins, models).
+- [~] **PCB read**: `altium_get_board` (outline, layer stack, counts, classes, violation count),
+      `altium_list_pcb_components` / `altium_get_pcb_component` (placement, pads), `altium_list_pcb_nets` /
+      `altium_get_pcb_net` (routing stats, pads, layers), `altium_list_pcb_rules`, `altium_list_pcb_primitives`
+      (tracks/vias/polygons/text/violations with geometry, layer/net filters).
+- [~] Menu entries via `.rcs`: *File > MCP Bridge* on the home page, *Tools > MCP Bridge* in SCH/PCB editors.
+
 Next (ordered):
-1. **Schematic object model** (`SCH` server): sheet objects with positions — components, pins, wires,
-   net labels, ports, power ports, text; `altium_get_sheet` / `altium_list_sheet_objects`. Needed for
-   any later editing and for "where is X on the sheet" questions.
-2. **PCB read**: board summary (size, layer stack, component/net/track counts), PCB components
-   (position, rotation, layer, footprint), PCB nets, rules list, DRC summary.
+1. **Verify SCH/PCB tools live** on Bluetooth Sentinel; fix API surprises; add dielectric details, DRC run.
+2. **Settings dialog** (Tools > MCP Bridge > Settings…) instead of panel-hosted settings — deferred while
+   the user works on the machine (no UI automation allowed).
 3. **Libraries & managed components**: project/installed libraries, symbol/footprint lookup, Workspace
    item/revision links per component, lifecycle state.
 4. **Bulk & analysis helpers** (still primitive): parameters for N components in one call, cross-reference

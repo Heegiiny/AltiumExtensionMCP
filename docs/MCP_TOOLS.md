@@ -44,6 +44,40 @@ libraryReference, footprint, description; nets on name.
 
 Sorting: components by natural designator order (R2 < R10); nets by name.
 
+## Schematic (sheet object model) — implemented, **not yet verified live**
+
+Common inputs: `documentPath?` (full `.SchDoc` path; default = active schematic editor document),
+`loadIfClosed?` (default true: closed sheets are loaded hidden; false → `DOCUMENT_NOT_OPEN`).
+Coordinates are mils (Altium internal 1/10000 mil ÷ 10000), origin bottom-left of the sheet.
+
+| Tool | Bridge method | Input | Output |
+|------|---------------|-------|--------|
+| `altium_get_sheet` | `sch.getSheet` | common | `document, isOpenInEditor, wasLoadedOnDemand, sheetStyle, widthMils, heightMils, unitSystem, objectCounts{Component, Pin, Wire, NetLabel, Port, PowerObject, ...}, parameters{}, templateFileName` |
+| `altium_list_sheet_objects` | `sch.listObjects` | common + `types?[]` (e.g. `["Component","NetLabel"]`; default Component, Wire, NetLabel, Port, PowerObject, SheetSymbol, SheetEntry, Bus, BusEntry, Junction, NoERC, Parameter(sheet), TextFrame, Note, Line), `filter?`, `offset?`, `limit?` (default 200, max 2000) | `documentPath, total, offset, returned, objects[]{id, type, text, x, y, rotation, isMirrored, bounds[x1,y1,x2,y2], vertices?[[x,y]...], attributes?{}, owner?}` |
+| `altium_get_sheet_component` | `sch.getComponent` | common + `component` (sheet designator like `U1`/`U1A`, or sheet UniqueId) | `documentPath, id, designator, physicalDesignator, comment, description, libReference, sourceLibraryName, designItemId, componentKind, x, y, rotation, isMirrored, bounds, partCount, currentPartId, displayMode, managed{vaultGuid,itemGuid,revisionGuid,symbolItemGuid,symbolRevisionGuid}, parameters{name:{value,isHidden,isSystem,isRule}}, pins[]{designator,name,electrical,partId,isHidden,hiddenNetName,x,y,rotation,lengthMils,description}, implementations[]` |
+
+`id` of a sheet component is the sheet-level UniqueId; the compiled component id (`project.*`) is the
+hierarchical UniqueId path whose last segment equals it.
+
+## PCB (board object model) — implemented, **not yet verified live**
+
+Common inputs: `documentPath?` (full `.PcbDoc` path; default = active PCB editor document),
+`loadIfClosed?` (default true). Coordinates are mils **relative to the board origin** (what the PCB
+editor displays); rotations in degrees CCW; sizes in mils.
+
+| Tool | Bridge method | Input | Output |
+|------|---------------|-------|--------|
+| `altium_get_board` | `pcb.getBoard` | common | `document, isOpenInEditor, wasLoadedOnDemand, displayUnit, originXMils, originYMils, outlineBounds[x1,y1,x2,y2], boardWidthMils, boardHeightMils, layerStack[]{name, id, kind Signal/Plane/Dielectric/Other, copperThicknessMils, isUsed}, signalLayerCount, objectCounts{Component, Pad, Via, Track, Arc, Polygon, Region, Fill, Text, Net, Rule, Class, Violation, ...}, classes[]{name, kind, isSuperClass, memberCount}, ruleCount, violationCount` |
+| `altium_list_pcb_components` | `pcb.listComponents` | common + `filter?`, `layer?` (Top/Bottom), `offset?`, `limit?` (100/2000) | `documentPath, total, offset, returned, items[]{id (PCB UniqueId), designator, sourceUniqueId (→ compiled component id), footprint, comment, layer, x, y, rotation, heightMils, bounds, padCount, sourceLibReference, sourceDescription, sourceHierarchicalPath, isLocked, hasDrcError}` |
+| `altium_get_pcb_component` | `pcb.getComponent` | common + `component` (designator, PCB UniqueId or schematic sourceUniqueId) | `documentPath, summary{...}, footprintDescription, sourceFootprintLibrary, sourceComponentLibrary, sourceDesignItemId, default3DModel, managed{}, isBga, enablePinSwapping, enablePartSwapping, designatorVisible, commentVisible, pads[]{name, net, x, y, rotation, layer, isSurfaceMount, shape, sizeXMils, sizeYMils, holeSizeMils, plated}, primitiveCounts{Track, Arc, Region, ComponentBody, Text, ...}` |
+| `altium_list_pcb_nets` | `pcb.listNets` | common + `filter?`, `offset?`, `limit?` | `documentPath, total, offset, returned, items[]{name, pinCount, viaCount, routedLengthMils, inDifferentialPair, connectivelyInvalid}` |
+| `altium_get_pcb_net` | `pcb.getNet` | common + `net` | `documentPath, summary{}, pads[]{pinDescriptor 'U1-3', ...}, trackCount, arcCount, polygonCount, regionCount, layers[], trackLengthMils` |
+| `altium_list_pcb_rules` | `pcb.listRules` | common + `filter?` (kind or name), `includeDisabled?` (true) | `documentPath, total, rules[]{name, kind, enabled, priority, scope1, scope2, summary, comment}` sorted by kind, priority |
+| `altium_list_pcb_primitives` | `pcb.listPrimitives` | common + `types?[]` (default Track, Arc, Via, Polygon, Region, Fill, Text; also Pad, ComponentBody, Dimension, Coordinate, Violation), `layer?` (name or id), `net?`, `freeOnly?`, `offset?`, `limit?` (200/2000) | `documentPath, total, offset, returned, items[]{type, layer, net, component, geometry[], widthMils, sizeMils, holeSizeMils, text, detail, hasDrcError}` — geometry: track `[x1,y1,x2,y2]`, via/pad/text/fill `[x,y]`, arc `[cx,cy,r,startDeg,endDeg]`, polygon/region/other = bounds |
+
+Cross-referencing: PCB `sourceUniqueId` ↔ compiled `project.listComponents[].id`; PCB `designator`
+↔ physical designator; PCB net names ↔ compiled net names (`project.listNets`).
+
 ## Error codes
 
 | Code | Meaning | Typical hint |
@@ -54,6 +88,9 @@ Sorting: components by natural designator order (R2 < R10); nets by name.
 | `NO_ACTIVE_PROJECT` | No focused project and none given | open a project / pass projectPath |
 | `PROJECT_NOT_FOUND` | `projectPath` not open in the workspace | use `altium_list_projects` |
 | `NOT_COMPILED` | No compiled (flattened) model | `compileIfNeeded=true` or Project > Validate |
+| `DOCUMENT_NOT_FOUND` | `documentPath` does not exist on disk | use `altium_get_project_structure` for exact paths |
+| `DOCUMENT_NOT_OPEN` | Sheet/board not open and `loadIfClosed=false`, or no active SCH/PCB editor document | pass `documentPath` / `loadIfClosed=true` |
+| `UNSUPPORTED` | SCH/PCB editor module not loaded in this Altium instance | open any sheet/board once |
 | `OBJECT_NOT_FOUND` | Component / net not found | use the list tool with a filter |
 | `INVALID_PARAMS` | Missing/invalid parameter | message names the parameter |
 | `UNKNOWN_METHOD` | Server/extension version mismatch | redeploy both |
@@ -62,12 +99,10 @@ Sorting: components by natural designator order (R2 < R10); nets by name.
 ## Planned (not implemented)
 
 Phase 1 continuation — read-only:
-- `altium_get_document` / `altium_list_sheet_objects` — schematic object model (`ISch_Document`
-  iterators: components, wires, net labels, ports, power ports, parameters, positions).
 - `altium_get_component_parameters_bulk` — parameters for many components in one call (BOM view).
-- `altium_get_pcb_summary`, `altium_list_pcb_components`, `altium_list_pcb_nets`, `altium_get_layer_stack`,
-  `altium_get_pcb_component` (position/rotation/layer/footprint) — `IPCB_Board` via `PCBServer`.
-- `altium_get_design_rules`, `altium_run_drc_summary`, `altium_get_erc_report`.
+- `altium_run_drc_summary` (batch DRC via `IPCB_Board.RunBatchDesignRuleCheck`), `altium_get_erc_report`.
+- Layer-stack dielectric details (material, thickness, Dk) — `IPCB_DielectricObject` exposes no
+  getters in the .NET SDK; needs `IPCB_LayerStack_V7`/stackup-document research.
 - `altium_list_libraries` / `altium_get_library_symbol` — installed and project libraries; managed
   component links (`Altium Content Vault` / Workspace items, `DM_VaultGUID` & co.).
 - `altium_get_variants` — variant list and per-variant component substitutions.

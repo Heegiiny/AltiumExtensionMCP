@@ -60,6 +60,6 @@ public class BridgeProtocolTests
     public void All_method_names_are_unique_and_domain_prefixed()
     {
         Assert.Equal(BridgeMethods.All.Count, new System.Collections.Generic.HashSet<string>(BridgeMethods.All).Count);
-        Assert.All(BridgeMethods.All, m => Assert.Matches("^(system|workspace|project|schematic|pcb)\\.[a-zA-Z]+$", m));
+        Assert.All(BridgeMethods.All, m => Assert.Matches("^(system|workspace|project|sch|pcb)\\.[a-zA-Z]+$", m));
     }
 }

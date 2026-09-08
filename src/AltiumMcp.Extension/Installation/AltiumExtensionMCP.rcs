@@ -1,3 +1,58 @@
-//Menus and toolbars for AltiumExtensionMCP.
-//Intentionally empty in v0.1: commands are available via DXP » Run Process
-//(e.g. AltiumExtensionMCP:ShowBridgePanel) and the panel via View » Panels » AltiumMcpBridge.
+// Menus for AltiumExtensionMCP (.NET extension). Syntax mirrors the system *.rcs files.
+// Process launchers ------------------------------------------------------------------------------
+PL PLAltiumExtensionMCP:StartBridge
+    Command='AltiumExtensionMCP:StartBridge'
+    Caption='&Start MCP Bridge'
+    Image=''
+    Shortcut1=''
+    Shortcut2=''
+    Params=''
+    Description='Start the MCP bridge HTTP listener (no-op if already running)'
+End
+
+PL PLAltiumExtensionMCP:BridgeStatus
+    Command='AltiumExtensionMCP:BridgeStatus'
+    Caption='MCP Bridge &Status...'
+    Image=''
+    Shortcut1=''
+    Shortcut2=''
+    Params=''
+    Description='Show the MCP bridge URL and request statistics'
+End
+
+PL PLAltiumExtensionMCP:ShowBridgePanel
+    Command='AltiumExtensionMCP:ShowBridgePanel'
+    Caption='MCP Bridge &Panel'
+    Image=''
+    Shortcut1=''
+    Shortcut2=''
+    Params=''
+    Description='Show the MCP Bridge status panel'
+End
+
+// Home page (no document) File menu, after "Run Script..." --------------------------------------
+Insertion INAltiumMcp_NoDoc TargetID='MNNoDocument_File' InsertType='After' RefID0='MNNoDocument_File134'
+    Tree MNAltiumMcp_NoDocTree Caption='&MCP Bridge'
+        Link MNAltiumMcp_NoDoc10 PLID='PLAltiumExtensionMCP:StartBridge'     End
+        Link MNAltiumMcp_NoDoc20 PLID='PLAltiumExtensionMCP:BridgeStatus'    End
+        Link MNAltiumMcp_NoDoc30 PLID='PLAltiumExtensionMCP:ShowBridgePanel' End
+    End
+End
+
+// Schematic editor Tools menu, after Preferences -------------------------------------------------
+Insertion INAltiumMcp_Sch TargetID='MNSchematic_Tools10' InsertType='After' RefID0='MNSchematic_Tools280'
+    Tree MNAltiumMcp_SchTree Caption='&MCP Bridge'
+        Link MNAltiumMcp_Sch10 PLID='PLAltiumExtensionMCP:StartBridge'     End
+        Link MNAltiumMcp_Sch20 PLID='PLAltiumExtensionMCP:BridgeStatus'    End
+        Link MNAltiumMcp_Sch30 PLID='PLAltiumExtensionMCP:ShowBridgePanel' End
+    End
+End
+
+// PCB editor Tools menu, after Preferences -------------------------------------------------------
+Insertion INAltiumMcp_Pcb TargetID='MNPCB_Tools10' InsertType='After' RefID0='MNPCB_Tools190'
+    Tree MNAltiumMcp_PcbTree Caption='&MCP Bridge'
+        Link MNAltiumMcp_Pcb10 PLID='PLAltiumExtensionMCP:StartBridge'     End
+        Link MNAltiumMcp_Pcb20 PLID='PLAltiumExtensionMCP:BridgeStatus'    End
+        Link MNAltiumMcp_Pcb30 PLID='PLAltiumExtensionMCP:ShowBridgePanel' End
+    End
+End

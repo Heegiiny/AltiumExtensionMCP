@@ -104,11 +104,27 @@ public static class BridgeMethods
     public const string ProjectListNets = "project.listNets";
     public const string ProjectGetNet = "project.getNet";
 
+    // sch.* — schematic sheet object model (geometry, per sheet)
+    public const string SchGetSheet = "sch.getSheet";
+    public const string SchListObjects = "sch.listObjects";
+    public const string SchGetComponent = "sch.getComponent";
+
+    // pcb.* — PCB board object model (geometry, layers, rules)
+    public const string PcbGetBoard = "pcb.getBoard";
+    public const string PcbListComponents = "pcb.listComponents";
+    public const string PcbGetComponent = "pcb.getComponent";
+    public const string PcbListNets = "pcb.listNets";
+    public const string PcbGetNet = "pcb.getNet";
+    public const string PcbListRules = "pcb.listRules";
+    public const string PcbListPrimitives = "pcb.listPrimitives";
+
     public static readonly IReadOnlyList<string> All = new[]
     {
         SystemPing, SystemGetEnvironment,
         WorkspaceGetInfo, WorkspaceListProjects, WorkspaceListOpenDocuments,
         ProjectGetStructure, ProjectListComponents, ProjectGetComponent, ProjectListNets, ProjectGetNet,
+        SchGetSheet, SchListObjects, SchGetComponent,
+        PcbGetBoard, PcbListComponents, PcbGetComponent, PcbListNets, PcbGetNet, PcbListRules, PcbListPrimitives,
     };
 }
 
