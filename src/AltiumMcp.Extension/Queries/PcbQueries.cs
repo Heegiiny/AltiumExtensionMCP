@@ -487,7 +487,6 @@ internal sealed class PcbQueries
             RoutedLengthMils = Mils(Safe(() => net.GetState_RoutedLength())),
             InDifferentialPair = Safe(() => net.GetState_InDifferentialPair()),
             UnroutedConnectionCount = unroutedByNet.TryGetValue(name, out int u) ? u : 0,
-            ConnectivityStale = Safe(() => net.GetState_ConnectivelyInvalid()),
         };
     }
 

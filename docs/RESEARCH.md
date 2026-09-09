@@ -94,14 +94,24 @@ Anti-patterns to avoid:
 
 Priority order used: official docs → working local extensions → decompiled SDK → open-source MCPs → experiment.
 
-- Local working extensions: `C:\Users\minat.ALTIUMSERVER0\AltiumExtensions` (TestExtension2026 for the .NET 8
-  csproj/deploy pattern, ReplicationBOM for a document-kind extension, `tools\altium-session\AltiumSession.ps1`
-  for lifecycle automation, `.cursor\skills\extension-lifecycle` and `ad-disasm` skills for workflow).
-- Decompiled Altium code: `D:\AD_Disasm`. Two trees: `Code\System\...` (current) and `Altium Developer\...`
-  (older mirror, same layout; use it when ILSpy mangled identifiers in the other). Key files:
-  `Altium.SDK\DXP\GlobalVars.cs`, `ServerModule.cs`, `Altium.SDK.Interfaces\{DXP,EDP,SCH,PCB}\*.cs`,
-  `docs\Altium.DotNetSupport_Extension_Loading_Algorithm.md`, and real plugins `Code\System\Altium.PinsPanel`,
-  `Altium.PCB.FullComponents`, `Altium.DesignReuse.ServerModule`, `Altium.Edp.PartSearch.Plugin`.
+Locations of the local sources are machine-specific and kept in `ENVIRONMENT.md`
+(`<ExtensionExamplesRoot>`, `<DisasmRoot>`); the notes below describe *what* is there.
+
+- Local working extensions (`<ExtensionExamplesRoot>`): TestExtension2026 for the .NET 8 csproj/deploy pattern,
+  ReplicationBOM for a document-kind extension, `tools\altium-session\AltiumSession.ps1` for lifecycle
+  automation, `.cursor\skills\extension-lifecycle` and `ad-disasm` skills for workflow.
+- Decompiled Altium code (`<DisasmRoot>`):
+  - Sessions 1–2 used the first machine's `D:\AD_Disasm` with two trees, `Code\System\...` (current) and
+    `Altium Developer\...` (older mirror), plus `docs\Altium.DotNetSupport_Extension_Loading_Algorithm.md`.
+    Key files: `Altium.SDK\DXP\GlobalVars.cs`, `ServerModule.cs`, `Altium.SDK.Interfaces\{DXP,EDP,SCH,PCB}\*.cs`,
+    real plugins `Altium.PinsPanel`, `Altium.PCB.FullComponents`, `Altium.DesignReuse.ServerModule`,
+    `Altium.Edp.PartSearch.Plugin`. That tree is **not** on the current machine.
+  - Since 2026-09-10 the reference is a fresh ILSpy dump of Altium **26.9.1** (`ADAgile` install + its
+    ProgramData Extensions): `sources\<Assembly>.dll-<hash>--<hash>\` per assembly, `assemblies.csv` maps folders
+    to original DLL paths/SHA-256, `types.csv`/`members.csv` for grep. Several copies of `Altium.SDK*.dll`
+    exist (different SDK versions shipped with extensions); the one matching `System\Altium.SDK.Interfaces.dll`
+    is listed in `ENVIRONMENT.md`. Additional material for phase 2: `Altium.WorkspaceManager.*`,
+    `Altium.Dxp.Edms.*` (session, vault client, design reviews, share manager), `Altium.Edp.*`.
 - Structural fact that unlocks the SDK: every COM interface exposes `Internal_Xxx()` members returning `object`;
   the typed API lives in sibling static extension classes `<IName>Helper.cs` (e.g. `IClientHelper.GetCurrentView`).
   Always look in the Helper file first.

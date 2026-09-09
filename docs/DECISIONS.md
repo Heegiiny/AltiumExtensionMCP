@@ -7,7 +7,8 @@ Format: context → options → decision → consequences. Newest last.
 - Context: existing open-source Altium MCPs mostly drive Altium via DelphiScript scripts and files
   (request/response through the file system) or via the Altium scripting engine. Locally we have
   a working .NET-extension workflow (`C:\Users\...\AltiumExtensions`, TestExtension2026) and the
-  decompiled SDK (`D:\AD_Disasm`).
+  decompiled SDK (`D:\AD_Disasm`). *(Paths as of the first machine; current locations are
+  `<ExtensionExamplesRoot>` / `<DisasmRoot>` in `ENVIRONMENT.md` — see D11.)*
 - Options: (a) DelphiScript + file mailbox; (b) COM automation from outside (not exposed by Altium);
   (c) in-process .NET extension using the official SDK.
 - Decision: (c). Full typed access to `EDP.IWorkspace/IProject/IDocument/IComponent/INet`,
@@ -80,3 +81,39 @@ Format: context → options → decision → consequences. Newest last.
 - `AltiumMcp.Tests` references Contracts + Server only (no Altium SDK) so `dotnet test` runs on
   any machine/CI. Anything that must be testable offline (filter, protocol, discovery, error
   mapping) lives in Contracts/Server, not in the Extension.
+
+## D11. Portability: environment-specific paths live in one generated file + one document (2026-09-08/10)
+
+- Context: the project moved from a shared machine (`ALTIUMSERVER0`: repo on `E:`, decompiled code on
+  `D:`, AD 26.3 + a second Altium install that must not be touched) to a dedicated agent workstation
+  (`SOLDERING01`: everything under the user profile, single AD 26.9.1). Absolute paths and
+  machine-specific assumptions were spread over `Directory.Build.props`, scripts and six docs; more
+  moves are expected.
+- Options: (a) keep editing paths in place on every move; (b) environment variables only; (c) one
+  git-ignored MSBuild props file generated from the Altium registry, read by both MSBuild and the
+  PowerShell tools, plus one human-readable document listing the current values.
+- Decision: (c). `tools\Detect-AltiumEnvironment.ps1` writes `Environment.local.props`
+  (`AltiumProgramsHome`, `AltiumProfileGuid`, optional roots); `Directory.Build.props` derives
+  `AltiumExe`/`AltiumSdkHome`/`AltiumExtensionDeployDir`; `tools\AltiumEnvironment.ps1` gives scripts the
+  same view (props → registry → defaults); `Directory.Build.targets` fails fast with the fix hint.
+  `docs/ENVIRONMENT.md` is the only document allowed to hold absolute paths; other docs use symbolic
+  names (`<ProjectRoot>`, `<DisasmRoot>`, ...) or link to it. Historical decisions keep their original
+  paths with a migration note instead of being rewritten. Registration in Altium's
+  `ExtensionsRegistry.xml` is scripted (`Register-Extension.ps1`) because a copied DLL alone is not
+  loaded on a fresh profile.
+- Consequences: a move = run the detect script, fix `[!!]` lines, register, redeploy, update
+  `ENVIRONMENT.md` + `SESSION_HANDOFF.md`. Runtime components already had no configured paths
+  (`%LOCALAPPDATA%` discovery + env overrides). Costs: one more file to know about; the props file
+  must be regenerated after an Altium upgrade (profile GUID changes).
+
+## D12. Dedicated workstation: Altium restarts and UI automation are allowed (2026-09-08)
+
+- Context: sessions 1–2 ran on the user's own machine, so the extension could not be redeployed
+  without coordinating (the DLL is locked while loaded) and no UI automation was permitted; several
+  items (settings dialog, live verification) were deferred because of that.
+- Decision: the agent machine is dedicated. `Redeploy-Extension.ps1` closes/restarts Altium as part
+  of the normal dev loop; UI automation and long experiments are fine. The remaining limits are about
+  data, not the machine: no destructive changes to Workspace items, managed components, libraries or
+  production project revisions; write tools (phase 3+) still need dry-run/preview/undo.
+- Consequences: deferred-for-machine-reasons items are back on the roadmap; the "user is working on
+  this machine" caveats in older notes are historical.

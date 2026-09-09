@@ -52,7 +52,7 @@ public sealed class PcbTools
             new GetPcbComponentParams { DocumentPath = documentPath, Component = component, LoadIfClosed = loadIfClosed }, ct));
 
     [McpServerTool(Name = "altium_list_pcb_nets", ReadOnly = true, Idempotent = true, OpenWorld = false, Title = "List PCB nets")]
-    [Description("Lists nets on the board sorted by name, paginated: pin count, via count, routed length (mils), differential-pair membership and the editor's 'connectively invalid' flag (unrouted/broken). Filter by substring or wildcard ('VCC*'). Compare with altium_list_nets (schematic/compiled) to find nets missing on the PCB.")]
+    [Description("Lists nets on the board sorted by name, paginated: pin count, via count, routed length (mils), differential-pair membership and unroutedConnectionCount (remaining ratsnest lines; absent = fully routed). Filter by substring or wildcard ('VCC*'). Compare with altium_list_nets (schematic/compiled) to find nets missing on the PCB.")]
     public Task<CallToolResult> ListNets(
         [Description("Full path of the .PcbDoc. Omit for the active PCB document.")] string? documentPath = null,
         [Description("Case-insensitive filter on net name: substring or wildcard.")] string? filter = null,

@@ -43,9 +43,9 @@ public sealed class SchematicTools
             new ListSheetObjectsParams { DocumentPath = documentPath, Types = types, Filter = filter, Offset = offset, Limit = limit, LoadIfClosed = loadIfClosed }, ct));
 
     [McpServerTool(Name = "altium_get_sheet_component", ReadOnly = true, Idempotent = true, OpenWorld = false, Title = "Get schematic component (sheet level)")]
-    [Description("Returns one component as placed on a schematic sheet: designator (logical + physical), comment, description, library reference, design item id, managed-content GUIDs, position/rotation/mirroring in mils, part count, all parameters with visibility flags, every pin with number/name/electrical type/part id/position/hidden-net, and model implementations. Use altium_get_component (compiled model) instead when you need the nets a pin connects to.")]
+    [Description("Returns one component as placed on a schematic sheet: designator (logical + physical), compiledIds (the project.* ids of its compiled instances), comment, description, library reference, design item id, managed-content GUIDs, position/rotation/mirroring in mils, part count, all parameters with visibility flags, every pin with number/name/electrical type/part id/position/hidden-net, and model implementations. Use altium_get_component (compiled model) instead when you need the nets a pin connects to.")]
     public Task<CallToolResult> GetComponent(
-        [Description("Designator as drawn on the sheet (e.g. 'U1', 'U1A' for multi-part) or the sheet UniqueId (from altium_list_sheet_objects).")] string component,
+        [Description("Designator as drawn on the sheet (e.g. 'U2'; 'U2A' also works for multi-part symbols), the sheet UniqueId (from altium_list_sheet_objects), or — when the project is compiled — the physical designator / compiled id from altium_list_components.")] string component,
         [Description("Full path of the .SchDoc. Omit for the active editor sheet.")] string? documentPath = null,
         [Description("Load the sheet hidden if it is not open (default true).")] bool loadIfClosed = true,
         CancellationToken ct = default) =>

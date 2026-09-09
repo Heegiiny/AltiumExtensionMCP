@@ -1,6 +1,7 @@
 # Architecture
 
-Status: phase 1 (read-only), working end-to-end against Altium Designer 26.3 (2026-09-07).
+Status: phase 1 (read-only), working end-to-end against Altium Designer 26.3 (2026-09-07) and 26.9.1
+(2026-09-08/10, dedicated agent workstation — see `ENVIRONMENT.md`). Target EDA: Altium Designer only.
 
 ## Why three processes/layers
 
@@ -25,8 +26,9 @@ other hand, expect to *spawn* a stdio server process. Those two facts force a sp
 │         ├ BridgeHttpServer (HttpListener, background threads)                          │
 │         ├ BridgeRouter  (method name → handler, JSON in/out, error wrapping)            │
 │         ├ UiThreadDispatcher (Control.BeginInvoke → UI thread, timeout)                │
-│         ├ Queries: SystemQueries, WorkspaceQueries, ProjectQueries  (Altium SDK calls) │
-│         └ BridgePanelView/Form (docked status panel = auto-load anchor)                 │
+│         ├ Queries: System, Workspace, Project (EDP compiled model),                     │
+│         │          Schematic (SCH sheet object model), Pcb (PCB board object model)     │
+│         └ BridgePanelView/Form (status panel) + .rcs menu entries (File/Tools > MCP Bridge) │
 └────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -42,7 +44,9 @@ so the extension and the server can never disagree about JSON shape, and tests r
 - `Bridge/BridgeDiscovery.cs` — `BridgeDescriptor` written to `%LOCALAPPDATA%\AltiumMcp\bridge.json`,
   default port 47120, env overrides `ALTIUM_MCP_BRIDGE_URL` / `ALTIUM_MCP_BRIDGE_PORT`, log dir.
 - `Model/*.cs` — `EnvironmentInfo`, `WorkspaceInfo`, `ProjectSummary`, `DocumentInfo`, `ProjectStructure`,
-  `HierarchyNode`, `ViolationSummary`, `ComponentSummary/Detail`, `PinInfo`, `NetSummary`, `NetPinRef`, params classes.
+  `HierarchyNode`, `ViolationSummary`, `ComponentSummary/Detail`, `PinInfo`, `NetSummary`, `NetPinRef`,
+  `SchematicModel.cs` (`SheetInfo`, `SchObject`, `SchComponentDetail`), `PcbModel.cs` (`BoardInfo`, `PcbComponent*`,
+  `PcbNet*`, `PcbRule`, `PcbPrimitive`), params classes.
 - `Model/FilterMatcher.cs` — list-filter semantics (substring or `*`/`?` wildcard).
 
 ### AltiumMcp.Extension (assembly `AltiumExtensionMCP.dll`)
@@ -62,9 +66,22 @@ so the extension and the server can never disagree about JSON shape, and tests r
   resolution; `Safe(() => comCall)` swallows per-property COM failures so a single bad property never
   kills a whole result; project lookup by path with `PROJECT_NOT_FOUND`.
 - `Queries/*Queries.cs` — pure "read SDK → DTO" code, one class per method family.
+  `SchematicQueries` resolves a sheet (active → `GetSchDocumentByPath` → hidden `LoadSchDocumentByPath`) and
+  iterates `ISch_Iterator`; `PcbQueries` wraps board resolution, layer-name cache and `BoardIterator` in
+  `BoardContext` (iterators destroyed in `finally`). `WorkspaceQueries.OpenDocument` is the only handler that
+  changes *editor* state (opens/focuses a tab); it never touches design data.
 - `Panel/*` — `ServerPanelView` + WinForms user control showing URL, pid, request count and the
-  in-memory log tail. Docking it once makes Altium restore it (and thus load us) on every start.
-- `Installation/AltiumExtensionMCP.ins` — server registration, `PanelInfo`, commands. Copied next to the DLL.
+  in-memory log tail.
+- `Installation/AltiumExtensionMCP.ins` — server registration, `PanelInfo`, commands;
+  `AltiumExtensionMCP.rcs` — menu entries (*File > MCP Bridge* on the home page, *Tools > MCP Bridge* in
+  SCH/PCB editors). Both copied next to the DLL.
+
+### Build / environment plumbing
+- `Directory.Build.props` imports the git-ignored `Environment.local.props` (machine-specific: Altium install,
+  profile GUID, optional roots) and derives SDK/deploy paths; `Directory.Build.targets` fails fast with a hint
+  when the SDK is missing (only for projects with `RequiresAltiumSdk=true`).
+- `tools/AltiumEnvironment.ps1` resolves the same facts for scripts (props → registry → defaults).
+  See `ENVIRONMENT.md` and DECISIONS D11.
 
 ### AltiumMcp.Server
 - `Program.cs` — no args → MCP stdio host (`Host.CreateApplicationBuilder`, logs to **stderr**);
@@ -77,10 +94,12 @@ so the extension and the server can never disagree about JSON shape, and tests r
 
 ## Cross-cutting rules
 
-- **Read-only.** No handler mutates the design. The one state-changing option, `compileIfNeeded`,
-  is opt-in and documented as such.
+- **Read-only.** No handler mutates the design. The state-changing options are opt-in and documented:
+  `compileIfNeeded` (compiles the project), `loadIfClosed` (loads a sheet/board hidden — no editor tab,
+  nothing saved) and `workspace.openDocument` (editor tab only).
 - **Stable identifiers.** Project = full path; document = full path; component = schematic `UniqueId`
   (`\XXXX\YYYY\ZZZZ` hierarchical) with designator as a convenience; net = flattened net name.
+  Sheet objects = sheet-level `UniqueId`; PCB components = PCB `UniqueId` plus `sourceUniqueId` (= compiled id).
 - **Compact JSON.** Null/false/0/empty are omitted on the wire; list tools paginate with
   `total/offset/returned`; big blobs (technology sets, parameters) are opt-in or summarised.
 - **Errors are data.** Every failure has a stable `code`, a human message and usually a `hint`
@@ -95,11 +114,15 @@ so the extension and the server can never disagree about JSON shape, and tests r
   add `XxxTools` in Server. Nothing else changes.
 - Write operations: add a `Mutations/` folder in Extension; every mutation handler should accept
   `dryRun` and return a `ChangeSet` DTO (`before/after`) so preview/undo/diff can be built on top.
-- Toolsets: tools are already grouped per class (`ConnectionTools`, `WorkspaceTools`, `ProjectTools`);
-  progressive disclosure can be implemented by registering classes conditionally or by a
-  `altium_enable_toolset` meta-tool that toggles `ListChanged`.
-- Multi-EDA: Contracts DTOs are EDA-neutral where possible (component/net/pin/document); an
-  `IEdaBackend` over the bridge client is the natural seam for a KiCad adapter.
+- Toolsets: tools are already grouped per class (`ConnectionTools`, `WorkspaceTools`, `ProjectTools`,
+  `SchematicTools`, `PcbTools`); progressive disclosure can be implemented by registering classes
+  conditionally or by a `altium_enable_toolset` meta-tool that toggles `ListChanged`.
+- Graphics: a `Render/` family in the extension (sheet/board → PNG/SVG via Altium's own print/export
+  or a custom painter over the object model) feeding an `altium_render_*` tool for VLM analysis.
+- Workspace/Server (phase 2): `WorkspaceServerQueries` over `EDP.Utils.GetDXPServerManager()` /
+  `GetVaultManager()` — connection state, managed project GUIDs, revisions; read-only first.
+- Not planned: multi-EDA abstractions (KiCad etc.). Contracts stay Altium-shaped; any generality is
+  incidental, not a design goal (decision recorded in `ROADMAP.md`, 2026-09-10).
 
 ## Data flow example — `altium_get_component U1`
 

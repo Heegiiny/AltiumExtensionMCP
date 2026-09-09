@@ -85,7 +85,10 @@ public sealed class GetSchComponentParams
 {
     public string? DocumentPath { get; set; }
     public bool LoadIfClosed { get; set; } = true;
-    /// <summary>Designator as drawn on the sheet (e.g. "U1") or the sheet component UniqueId.</summary>
+    /// <summary>
+    /// Designator as drawn on the sheet ("U2", also "U2A" for a multi-part symbol), the sheet component UniqueId,
+    /// or — when the owning project is compiled — the physical designator / compiled UniqueId from project.*.
+    /// </summary>
     public string Component { get; set; } = string.Empty;
 }
 
@@ -94,8 +97,14 @@ public sealed class SchComponentDetail
     public string DocumentPath { get; set; } = string.Empty;
     public string Id { get; set; } = string.Empty;
     public string Designator { get; set; } = string.Empty;
-    /// <summary>Physical designator stored on the designator object (after annotation / channel expansion), if any.</summary>
+    /// <summary>
+    /// Physical designator (after annotation / channel expansion). Taken from the designator object when Altium fills
+    /// it, otherwise from the compiled model of the owning project (several, comma-separated, for multi-channel sheets).
+    /// Null when the project is not compiled.
+    /// </summary>
     public string? PhysicalDesignator { get; set; }
+    /// <summary>Compiled component ids (project.* <c>id</c>) that originate from this sheet component; null if not compiled.</summary>
+    public List<string>? CompiledIds { get; set; }
     public string? Comment { get; set; }
     public string? Description { get; set; }
     public string? LibReference { get; set; }

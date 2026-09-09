@@ -167,14 +167,12 @@ public sealed class PcbNetSummary
     public int ViaCount { get; set; }
     public double RoutedLengthMils { get; set; }
     public bool InDifferentialPair { get; set; }
-    /// <summary>Number of ratsnest connection lines still on this net (0 = fully routed as far as the PCB editor knows).</summary>
-    public int UnroutedConnectionCount { get; set; }
     /// <summary>
-    /// Altium's <c>ConnectivelyInvalid</c> flag: connectivity for this net has not been (re)analysed. Live finding:
-    /// true for every net of a board that was loaded hidden (not shown in the editor). Not an "unrouted" indicator;
-    /// use <see cref="UnroutedConnectionCount"/> for that.
+    /// Number of ratsnest connection lines (<c>eConnectionObject</c>) still on this net: 0 = fully routed as far as the
+    /// PCB editor knows. Live finding: Altium's <c>IPCB_Net.ConnectivelyInvalid</c> is true for every net whether the
+    /// board is hidden-loaded or open in the editor, so it is not exposed; connection objects are the usable signal.
     /// </summary>
-    public bool ConnectivityStale { get; set; }
+    public int UnroutedConnectionCount { get; set; }
 }
 
 public sealed class PcbNetListResult
