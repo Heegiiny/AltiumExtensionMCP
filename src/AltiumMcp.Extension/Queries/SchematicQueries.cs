@@ -6,6 +6,7 @@ using AltiumMcp.Contracts.Bridge;
 using AltiumMcp.Contracts.Model;
 using AltiumMcp.Extension.Bridge;
 using DXP;
+using EDP;   // DM_* typed helpers (extension methods) for the compiled-model fallback in GetComponent
 using SCH;
 using static AltiumMcp.Extension.Queries.AltiumAccess;
 
@@ -16,7 +17,7 @@ namespace AltiumMcp.Extension.Queries;
 /// Unlike the compiled model (ProjectQueries) this is per sheet and carries geometry.
 /// Coordinates are converted from internal units (1/10000 mil) to mils.
 /// </summary>
-internal sealed class SchematicQueries
+internal sealed partial class SchematicQueries
 {
     private const int MaxLimit = 2000;
 
@@ -173,14 +174,27 @@ internal sealed class SchematicQueries
 
     public SchComponentDetail GetComponent(GetSchComponentParams? p)
     {
-        if (p == null || string.IsNullOrWhiteSpace(p.Component))
+        if (p == null || InputNormalizer.Optional(p.Component) == null)
         {
             throw new BridgeException(BridgeErrorCodes.InvalidParams, "'component' (designator or sheet UniqueId) is required.");
         }
 
+        p.Component = InputNormalizer.Optional(p.Component)!;
+        string level;
+        try
+        {
+            level = DetailLevel.Normalize(p.Detail);
+        }
+        catch (ArgumentException ex)
+        {
+            throw new BridgeException(BridgeErrorCodes.InvalidParams, ex.Message);
+        }
+
+        bool full = level == DetailLevel.Full;
         (ISch_Document doc, string path, _) = ResolveSheet(p.DocumentPath, p.LoadIfClosed);
 
-        ISch_Component? found = null;
+        // Pass 1: everything on the sheet (needed for fallbacks and for a useful error message).
+        var candidates = new List<(ISch_Component Comp, string? Logical, string? Physical, string? Uid)>();
         foreach (ISch_BasicContainer o in Iterate(doc, new TObjectSet(TObjectId.eSchComponent), TIterationDepth.eIterateFirstLevel))
         {
             if (o is not ISch_Component c)
@@ -189,49 +203,111 @@ internal sealed class SchematicQueries
             }
 
             ISch_Designator? d = Safe(() => c.GetState_SchDesignator());
-            string? logical = d == null ? null : Safe(() => d.GetState_Text());
-            string? physical = d == null ? null : Safe(() => d.GetState_PhysicalDesignator());
-            string? uid = Safe(() => c.GetState_UniqueId());
-            if (Eq(logical, p.Component) || Eq(physical, p.Component) || Eq(uid, p.Component))
-            {
-                found = c;
-                break;
-            }
+            candidates.Add((c,
+                d == null ? null : Safe(() => d.GetState_Text()),
+                d == null ? null : NullIfEmpty(Safe(() => d.GetState_PhysicalDesignator())),
+                Safe(() => c.GetState_UniqueId())));
+        }
+
+        string wanted = p.Component.Trim();
+
+        // 1. Exact: logical designator as drawn, sheet-level physical designator, or sheet UniqueId.
+        ISch_Component? found = candidates.FirstOrDefault(t => Eq(t.Logical, wanted) || Eq(t.Physical, wanted) || Eq(t.Uid, wanted)).Comp;
+
+        // 2. Multi-part suffix ("U2A" → "U2", part 1). Live finding: each placed part of a multi-part component is its
+        //    own ISch_Component on the sheet with its own UniqueId and the same designator text; pick the part whose
+        //    CurrentPartID matches the letter, else the first one with that designator.
+        if (found == null && wanted.Length > 1 && char.IsLetter(wanted[^1]) && char.IsDigit(wanted[^2]))
+        {
+            string baseDes = wanted[..^1];
+            int partId = char.ToUpperInvariant(wanted[^1]) - 'A' + 1;
+            var parts = candidates.Where(t => Eq(t.Logical, baseDes)).ToList();
+            found = parts.FirstOrDefault(t => Safe(() => t.Comp.GetState_CurrentPartID()) == partId).Comp ?? parts.FirstOrDefault().Comp;
+        }
+
+        // 3. Physical designator / compiled UniqueId from the compiled project model (project.* ids). The sheet
+        //    object model only knows the logical designator (live finding: GetState_PhysicalDesignator() is empty
+        //    on a hierarchical design), so map physical → logical via the flattened document of the owning project.
+        Dictionary<string, List<CompiledComponentRef>> compiled = CompiledComponentsOfSheet(path);
+        if (found == null && compiled.Count > 0)
+        {
+            string wantedTail = wanted.Contains('\\') ? wanted[(wanted.LastIndexOf('\\') + 1)..] : wanted;
+            CompiledComponentRef? hit = compiled.Values.SelectMany(l => l)
+                .FirstOrDefault(r => Eq(r.PhysicalDesignator, wanted) || Eq(r.UniqueId, wanted));
+            found = hit == null
+                ? candidates.FirstOrDefault(t => Eq(t.Uid, wantedTail)).Comp
+                : candidates.FirstOrDefault(t => Eq(t.Uid, hit.UniqueIdTail) || Eq(t.Logical, hit.LogicalDesignator)).Comp;
         }
 
         if (found == null)
         {
+            string sample = string.Join(", ", candidates.Select(t => t.Logical).Where(s => !string.IsNullOrEmpty(s)).Distinct(StringComparer.OrdinalIgnoreCase).Take(20));
             throw new BridgeException(BridgeErrorCodes.ObjectNotFound, $"Component '{p.Component}' not found on sheet '{Path.GetFileName(path)}'.",
-                new Dictionary<string, string> { ["hint"] = "Use sch.listObjects with types=[\"Component\"] to see designators on this sheet, or project.listComponents for the whole project." });
+                new Dictionary<string, string>
+                {
+                    ["designatorsOnSheet"] = sample,
+                    ["hint"] = "Pass the logical designator as drawn on this sheet, its sheet UniqueId, or the physical designator / compiled id from project.listComponents (resolved when the project is compiled). Use sch.listObjects types=[\"Component\"] to list this sheet.",
+                });
         }
 
         ISch_Designator? des = Safe(() => found.GetState_SchDesignator());
         ISch_Parameter? comment = Safe(() => found.GetState_SchComment());
         Point? loc = Safe(() => found.GetState_Location());
+        string foundUid = Safe(() => found.GetState_UniqueId()) ?? string.Empty;
+        string? foundLogical = des == null ? null : Safe(() => des.GetState_Text());
+        string? physicalFromSheet = des == null ? null : NullIfEmpty(Safe(() => des.GetState_PhysicalDesignator()));
+        // Compiled instances: by UniqueId tail (the normal case), else by logical designator — the compiled model keeps
+        // only one UniqueId per multi-part component, so the other parts' sheet objects map through the designator.
+        List<CompiledComponentRef>? compiledRefs = compiled.TryGetValue(foundUid, out List<CompiledComponentRef>? refs) ? refs : null;
+        if ((compiledRefs == null || compiledRefs.Count == 0) && !string.IsNullOrEmpty(foundLogical))
+        {
+            compiledRefs = compiled.Values.SelectMany(l => l).Where(r => Eq(r.LogicalDesignator, foundLogical)).ToList();
+            if (compiledRefs.Count == 0)
+            {
+                compiledRefs = null;
+            }
+        }
         var detail = new SchComponentDetail
         {
             DocumentPath = path,
-            Id = Safe(() => found.GetState_UniqueId()) ?? string.Empty,
+            Id = foundUid,
             Designator = (des == null ? null : Safe(() => des.GetState_Text())) ?? string.Empty,
-            PhysicalDesignator = des == null ? null : NullIfEmpty(Safe(() => des.GetState_PhysicalDesignator())),
+            // Sheet-level physical designator when Altium fills it; otherwise the compiled model's (one per channel
+            // instance in multi-channel designs, joined with ", ").
+            PhysicalDesignator = physicalFromSheet
+                ?? (compiledRefs == null ? null : NullIfEmpty(string.Join(", ", compiledRefs.Select(r => r.PhysicalDesignator).Where(s => !string.IsNullOrEmpty(s)).Distinct()))),
+            CompiledIds = compiledRefs?.Select(r => r.UniqueId).Distinct().ToList(),
             Comment = comment == null ? null : NullIfEmpty(Safe(() => comment.GetState_Text())),
             Description = NullIfEmpty(Safe(() => found.GetState_ComponentDescription())),
             LibReference = NullIfEmpty(Safe(() => found.GetState_LibReference())),
-            SourceLibraryName = NullIfEmpty(Safe(() => found.GetState_SourceLibraryName())),
-            DesignItemId = NullIfEmpty(Safe(() => found.GetState_DesignItemId())),
-            ComponentKind = EnumName(Safe(() => found.GetState_ComponentKind().ToString())),
+            SourceLibraryName = full ? NullIfEmpty(Safe(() => found.GetState_SourceLibraryName())) : null,
+            DesignItemId = full ? NullIfEmpty(Safe(() => found.GetState_DesignItemId())) : null,
+            ComponentKind = full ? EnumName(Safe(() => found.GetState_ComponentKind().ToString())) : null,
             X = Mils(loc?.X ?? 0),
             Y = Mils(loc?.Y ?? 0),
             Rotation = Degrees(Safe(() => found.GetState_Orientation())),
             IsMirrored = Safe(() => found.GetState_IsMirrored()),
-            Bounds = BoundsOf(found),
+            Bounds = full ? BoundsOf(found) : null,
             PartCount = Safe(() => found.GetState_PartCountNoPart0()),
             CurrentPartId = Safe(() => found.GetState_CurrentPartID()),
-            DisplayMode = Safe(() => found.GetState_DisplayMode()),
+            DisplayMode = full ? Safe(() => found.GetState_DisplayMode()) : 0,
         };
 
-        string? vault = NullIfEmpty(Safe(() => found.GetState_VaultGUID()));
-        string? item = NullIfEmpty(Safe(() => found.GetState_ItemGUID()));
+        if (CrossProbeService.ShouldProbe(p.CrossProbe))
+        {
+            string probePath = path;
+            string probeId = foundUid;
+            detail.CrossProbe = CrossProbeService.Request($"sheet component {detail.Designator} on {Path.GetFileName(path)}",
+                () => Select(new SelectParams { DocumentPath = probePath, Objects = new List<string> { probeId }, ClearFirst = true, ZoomTo = true, Focus = true }));
+        }
+
+        if (level == DetailLevel.Summary)
+        {
+            return detail;
+        }
+
+        string? vault = full ? NullIfEmpty(Safe(() => found.GetState_VaultGUID())) : null;
+        string? item = full ? NullIfEmpty(Safe(() => found.GetState_ItemGUID())) : null;
         if (vault != null || item != null)
         {
             detail.Managed = new ManagedLink
@@ -244,6 +320,44 @@ internal sealed class SchematicQueries
             };
         }
 
+        detail.Pins = new List<SchPinInfo>();
+        foreach (ISch_BasicContainer o in Iterate(found, new TObjectSet(TObjectId.ePin), TIterationDepth.eIterateFirstLevel))
+        {
+            if (o is not ISch_Pin pin || !PinBelongsToActiveMode(pin, found))
+            {
+                continue;
+            }
+
+            var info = new SchPinInfo
+            {
+                Designator = Safe(() => pin.GetState_Designator()) ?? string.Empty,
+                Name = NullIfEmpty(Safe(() => pin.GetState_Name())),
+                Electrical = Electrical(pin),
+                PartId = detail.PartCount > 1 ? Safe(() => pin.GetState_OwnerPartId()) : 0,
+                IsHidden = Safe(() => pin.GetState_IsHidden()),
+                HiddenNetName = NullIfEmpty(Safe(() => pin.GetState_HiddenNetName())),
+            };
+            if (full)
+            {
+                Point? pl = Safe(() => pin.GetState_Location());
+                info.X = Mils(pl?.X ?? 0);
+                info.Y = Mils(pl?.Y ?? 0);
+                info.Rotation = Degrees(Safe(() => pin.GetState_Orientation()));
+                info.LengthMils = Mils(Safe(() => pin.GetState_PinLength()));
+                info.Description = NullIfEmpty(Safe(() => pin.GetState_Description()));
+            }
+
+            detail.Pins.Add(info);
+        }
+
+        detail.Pins.Sort((a, b) => NaturalCompare(a.Designator, b.Designator));
+
+        if (!full)
+        {
+            return detail;
+        }
+
+        detail.Parameters = new Dictionary<string, SchParameterInfo>(StringComparer.OrdinalIgnoreCase);
         foreach (ISch_BasicContainer o in Iterate(found, new TObjectSet(TObjectId.eParameter), TIterationDepth.eIterateFirstLevel))
         {
             if (o is not ISch_Parameter prm)
@@ -266,32 +380,7 @@ internal sealed class SchematicQueries
             };
         }
 
-        foreach (ISch_BasicContainer o in Iterate(found, new TObjectSet(TObjectId.ePin), TIterationDepth.eIterateFirstLevel))
-        {
-            if (o is not ISch_Pin pin || !PinBelongsToActiveMode(pin, found))
-            {
-                continue;
-            }
-
-            Point? pl = Safe(() => pin.GetState_Location());
-            detail.Pins.Add(new SchPinInfo
-            {
-                Designator = Safe(() => pin.GetState_Designator()) ?? string.Empty,
-                Name = NullIfEmpty(Safe(() => pin.GetState_Name())),
-                Electrical = Electrical(pin),
-                PartId = Safe(() => pin.GetState_OwnerPartId()),
-                IsHidden = Safe(() => pin.GetState_IsHidden()),
-                HiddenNetName = NullIfEmpty(Safe(() => pin.GetState_HiddenNetName())),
-                X = Mils(pl?.X ?? 0),
-                Y = Mils(pl?.Y ?? 0),
-                Rotation = Degrees(Safe(() => pin.GetState_Orientation())),
-                LengthMils = Mils(Safe(() => pin.GetState_PinLength())),
-                Description = NullIfEmpty(Safe(() => pin.GetState_Description())),
-            });
-        }
-
-        detail.Pins.Sort((a, b) => NaturalCompare(a.Designator, b.Designator));
-
+        detail.Implementations = new List<ImplementationInfo>();
         foreach (ISch_BasicContainer o in Iterate(found, new TObjectSet(TObjectId.eImplementation), TIterationDepth.eIterateAllLevels))
         {
             if (o is not ISch_Implementation impl)
@@ -482,6 +571,61 @@ internal sealed class SchematicQueries
 
     // ---- helpers --------------------------------------------------------------------------------------------------
 
+    private sealed record CompiledComponentRef(string UniqueId, string UniqueIdTail, string? LogicalDesignator, string? PhysicalDesignator);
+
+    /// <summary>
+    /// Compiled (flattened) components whose source sheet is <paramref name="sheetPath"/>, keyed by the last segment
+    /// of the hierarchical compiled UniqueId (= the sheet-level UniqueId). Empty when the sheet belongs to no open
+    /// project or the project is not compiled — callers must treat that as "no mapping", not as an error.
+    /// </summary>
+    private static Dictionary<string, List<CompiledComponentRef>> CompiledComponentsOfSheet(string sheetPath)
+    {
+        var map = new Dictionary<string, List<CompiledComponentRef>>(StringComparer.OrdinalIgnoreCase);
+        EDP.IWorkspace? ws;
+        try
+        {
+            ws = Workspace;
+        }
+        catch (BridgeException)
+        {
+            return map;
+        }
+
+        EDP.IDocument? dm = Safe(() => ws.DM_GetDocumentFromPath(sheetPath));
+        EDP.IProject? project = dm == null ? null : Safe(() => dm.DM_Project());
+        EDP.IDocument? flat = project == null ? null : Safe(() => project.DM_DocumentFlattened());
+        if (flat == null)
+        {
+            return map;
+        }
+
+        int count = Safe(() => flat.DM_ComponentCount());
+        for (int i = 0; i < count; i++)
+        {
+            EDP.IComponent? c = Safe(() => flat.DM_Components(i));
+            if (c == null || !PathEquals(Safe(() => c.DM_OwnerDocumentFullPath()), sheetPath))
+            {
+                continue;
+            }
+
+            string uid = Safe(() => c.DM_UniqueId()) ?? string.Empty;
+            if (uid.Length == 0)
+            {
+                continue;
+            }
+
+            string tail = uid.Contains('\\') ? uid[(uid.LastIndexOf('\\') + 1)..] : uid;
+            if (!map.TryGetValue(tail, out List<CompiledComponentRef>? list))
+            {
+                map[tail] = list = new List<CompiledComponentRef>();
+            }
+
+            list.Add(new CompiledComponentRef(uid, tail, Safe(() => c.DM_LogicalDesignator()), Safe(() => c.DM_PhysicalDesignator())));
+        }
+
+        return map;
+    }
+
     /// <summary>
     /// A component stores one pin set per symbol display mode (alternate symbols); iterating a component yields all
     /// of them (verified live: a 2-pin capacitor returned 4 pins). Keep only the pins of the active display mode.
@@ -511,39 +655,15 @@ internal sealed class SchematicQueries
     /// <summary>Resolves an ISch_Document by path (open or loaded hidden) or the current schematic editor document.</summary>
     private static (ISch_Document Doc, string Path, bool LoadedOnDemand) ResolveSheet(string? documentPath, bool loadIfClosed)
     {
+        // Path validation / project-context resolution happens before any SCH server call (no modal dialogs).
+        ResolvedDocument target = DocumentResolver.Resolve(documentPath, DocumentResolver.Sch);
+        string full = target.FullPath;
         ISch_ServerInterface sch = SchServer;
-        if (string.IsNullOrWhiteSpace(documentPath))
-        {
-            ISch_Document? current = Safe(() => sch.GetCurrentSchDocument());
-            if (current == null)
-            {
-                throw new BridgeException(BridgeErrorCodes.DocumentNotOpen, "No schematic sheet is active in the editor. Pass documentPath explicitly.",
-                    new Dictionary<string, string> { ["hint"] = "Use project.getStructure to list .SchDoc paths of the project." });
-            }
-
-            return (current, Safe(() => current.GetState_DocumentName()) ?? string.Empty, false);
-        }
-
-        string full = documentPath;
-        try
-        {
-            full = Path.GetFullPath(documentPath);
-        }
-        catch
-        {
-            // keep as given
-        }
 
         ISch_Document? doc = Safe(() => sch.GetSchDocumentByPath(full));
         if (doc != null)
         {
             return (doc, full, false);
-        }
-
-        if (!File.Exists(full))
-        {
-            throw new BridgeException(BridgeErrorCodes.DocumentNotFound, $"Schematic file not found: '{full}'.",
-                new Dictionary<string, string> { ["hint"] = "Use project.getStructure for exact document paths." });
         }
 
         if (!loadIfClosed)
@@ -554,7 +674,8 @@ internal sealed class SchematicQueries
         doc = Safe(() => sch.LoadSchDocumentByPath(full));
         if (doc == null)
         {
-            throw new BridgeException(BridgeErrorCodes.Internal, $"Altium could not load the schematic '{full}'.");
+            throw new BridgeException(BridgeErrorCodes.AltiumApiError, $"Altium could not load the schematic '{full}'.",
+                new Dictionary<string, string> { ["hint"] = "The file exists but the SCH editor rejected it (corrupt, locked, or not a schematic)." });
         }
 
         return (doc, full, true);

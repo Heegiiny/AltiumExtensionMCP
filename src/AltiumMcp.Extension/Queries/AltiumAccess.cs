@@ -40,7 +40,8 @@ internal static class AltiumAccess
     public static IProject ResolveProject(string? projectPath)
     {
         IWorkspace ws = Workspace;
-        if (string.IsNullOrWhiteSpace(projectPath))
+        projectPath = InputNormalizer.Optional(projectPath); // "None"/"null"/"" → focused project
+        if (projectPath == null)
         {
             IProject? focused = Safe(() => ws.DM_FocusedProject());
             if (focused == null)

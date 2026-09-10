@@ -1,17 +1,20 @@
 # Altium API notes (SDK25 / AD26, .NET 8 extensions)
 
-Sources, in priority order: local working extensions (`C:\Users\minat.ALTIUMSERVER0\AltiumExtensions`),
-decompiled SDK (`D:\AD_Disasm\Altium Developer\Altium.SDK*`), decompiled system extensions
-(`D:\AD_Disasm\Code\System\*`, e.g. `Altium.PinsPanel`), and live experiments through the bridge.
+Sources, in priority order: live experiments through the bridge, local working extensions
+(`<ExtensionExamplesRoot>`), decompiled SDK and system extensions (`<DisasmRoot>`, e.g. `Altium.SDK.Interfaces`,
+`Altium.PinsPanel`). Paths: `ENVIRONMENT.md`. Verified on AD 26.3.0 (sessions 1–2) and 26.9.1 (since 2026-09-08).
 
 ## Hosting model
 
-- AD26 (`C:\Program Files\Altium\AD26\X2.EXE`) runs .NET 8 extensions via `Altium.DotNetSupport.dll`
-  (algorithm documented in `D:\AD_Disasm\docs\Altium.DotNetSupport_Extension_Loading_Algorithm.md`).
+- AD26 (`<AltiumExe>` = `X2.EXE`) runs .NET 8 extensions via `Altium.DotNetSupport.dll` (decompiled in
+  `<DisasmRoot>\sources\Altium.DotNetSupport.dll-*`; the first machine also had a write-up
+  `docs\Altium.DotNetSupport_Extension_Loading_Algorithm.md` that did not travel with the repo).
   Assemblies are loaded from a custom `AssemblyLoadContext`; they do not appear as OS modules, but the
   DLL file is locked while loaded (use that to check whether an extension was loaded).
-- Extension folder: `C:\ProgramData\Altium\Altium Designer {295B10CB-...}\Extensions\<Name>\`
-  containing `<Name>.dll`, `<Name>.ins`, optional `<Name>.rcs`, `deps.json`, `runtimeconfig.json`.
+- Extension folder: `<AltiumProfileRoot>\Extensions\<Name>\` containing `<Name>.dll`, `<Name>.ins`,
+  optional `<Name>.rcs`, `deps.json`, `runtimeconfig.json`. On a fresh profile the folder alone is not enough:
+  the extension must be listed in `<AltiumProfileRoot>\Extensions\ExtensionsRegistry.xml`
+  (`Item HRID=... Path=...`; `tools\Register-Extension.ps1` writes it) or `-R<Server>:<Command>` starts nothing.
 - Entry point: a public class implementing `CSharpPlugin.IPluginFactory` with
   `IServerModule CreateServerModule(IClient client, string moduleName)` returning a `DXP.ServerModule` subclass.
 - Project settings that work: `net8.0-windows`, `UseWindowsForms=true`, `UseWPF=true` (Altium.SDK.dll
@@ -137,6 +140,72 @@ module's* documents — use the workspace for the global view.
 `DM_ChannelIndex()`, `DM_LoadDocument()`. `INet` extras: `DM_AllNetItemCount()/DM_AllNetItems(i)`,
 `DM_SheetEntryCount()`, `DM_SignalType()`. `IParameter.DM_SetValue(string)` exists (phase 2 write path).
 
+## Live findings from SCH/PCB verification (AD 26.9.1, 2026-09-08/10)
+
+Schematic (`SCH`):
+- `ISch_Document` first-level iteration never yields **sheet entries** or **harness entries**; they are children
+  of `eSheetSymbol` / `eHarnessConnector` and must be iterated from the container (like pins/parameters from
+  `eSchComponent`). `ISch_SheetEntry.GetState_IOType()/GetState_Side()`, `ISch_HarnessEntry.GetState_Side()` work.
+- Iterating pins of a component returns **one pin set per display mode** (alternate symbols): a 2-pin capacitor
+  yields 4 pins. Filter with `pin.GetState_OwnerPartDisplayMode() == component.GetState_DisplayMode()`.
+- **Each placed part of a multi-part component is its own `ISch_Component`** with its own `UniqueId`, same
+  designator text (`U2` → `NCXIUWJG` part 1, `YCVLBLXF` part 2; `GetState_CurrentPartID()` tells which).
+  The compiled model keeps a single component whose hierarchical `DM_UniqueId()` ends with one of them.
+  Each part object still reports all pins (all `partId`s).
+- `ISch_Designator.GetState_PhysicalDesignator()` is **empty** on a hierarchical design at sheet level; the
+  physical designator lives only in the compiled model (`IComponent.DM_PhysicalDesignator()`), mapped through
+  `DM_OwnerDocumentFullPath()` == sheet path and the UniqueId tail (or logical designator for other parts).
+- Compiled id ↔ sheet id: `\LMYISRGO\GJSCNDCC\SQQNJPYP` ↔ sheet `SQQNJPYP` (segments = sheet-symbol UniqueIds
+  along the hierarchy + component UniqueId). Multi-channel: one sheet object ↔ N compiled ids.
+- `LoadSchDocumentByPath` (hidden load) does not steal focus and does not create an editor tab;
+  `sch.getSheet` on a hidden load ≈ 0.4 s, further calls 40–100 ms.
+- Sheets that only wire sub-sheets (e.g. `Visual_LEDx6.SchDoc`) legitimately have 0 components; managed reused
+  sheets live under `<project>\Managed\Sheets\{GUID}\` and appear as normal logical documents.
+- **Selection**: `ISch_GraphicalObject.SetState_Selection(bool)` + `GraphicallyInvalidate()`, then
+  `ISch_Document.UpdateDisplayForCurrentSheet()`. No document-level "deselect all" API → iterate all levels and
+  clear `GetState_Selection()`. `ISch_Component.FullPartDesignator(partId)` did not match `U2A` live; compose
+  `designator + (char)('A' + partId - 1)` as a fallback. `sch.select`.
+- **Running editor processes from C#**: `(GlobalVars.Client as IProcessLauncher).SendMessage("Sch:Zoom", ref "Object=Selected",
+  serverDocument.GetView(0))` — the pattern Altium's own managed servers use (`ActiveBomServerDocument`). Process
+  ids/parameters are in `<AltiumProgramsHome>\System\advsch.rcs` / `AdvPcb.rcs` (`PCB:Zoom` `Action=Selected`,
+  `Sch:DeSelect` `Action=All`, `PCB:DeSelect` `Scope=All`). Works live for zoom-to-selection.
+- **No sheet-to-image API** in the .NET SDK: `ISch_ServerInterface.CreateDocumentPainter()` → `IDocumentPainterView`
+  only repaints the editor; `CreateComponentMetafilePainter().DrawToMetafile(part, colorMode, scaleMode, file)` and
+  `PaintLoadedComponentThumbnail(comp, part, w, h)` (HBITMAP) are per component. PCB does have
+  `IPCB_Board.GetState_MainGraphicalView().RenderToDC(hdc, dpiX, dpiY, dest, src)` (+ `SetState_TemporaryWindow`).
+  Rendering is deferred (ROADMAP).
+
+PCB (`PCB`):
+- `IPCB_Net.GetState_ConnectivelyInvalid()` is **true for every net** — on a hidden-loaded board and also after the
+  board is opened in the editor. Useless as an "unrouted" signal. Count `eConnectionObject` primitives per net
+  instead (ratsnest lines; 0 on the fully routed example).
+- `IPCB_Rule.Priority()` works (`FanoutControl` 1..5, `PolygonConnectStyle` 1..3). `IPCB_ObjectClass` member
+  iteration terminates on an empty name. `GetState_LayerStack_V7` `FirstLayer/NextLayer` returned only the four
+  copper layers (no dielectrics) on the example board. `IPCB_Component.GetState_Name()` returns the designator
+  `IPCB_Text`.
+- `eViolationObject` primitives and `violationCount` are 0 until a DRC is run inside Altium.
+- **Batch DRC from code works**: `IPCB_Board.RunBatchDesignRuleCheck(reportPath, TDRCReportFileFormat.eDRC_Text|eDRC_HTML,
+  displayReport=false, publishToWeb=false)` returns true, runs on a **hidden-loaded** board too (1.6 s on the example),
+  writes a `Rule Violations|<rule summary>|<count>` text report and refreshes `eViolationObject` primitives. Per
+  violation: `IPCB_Violation.GetState_Rule()` (→ `IPCB_Rule`), `GetState_Description()`, `GetState_Primitive1/2()`
+  (use `GetState_DescriptorString()`), bounds via `BoundingRectangle()`. No dialog appeared. `pcb.runDrc`.
+- **Selection is editor state**: `board.SelectedObjects_BeginUpdate/Clear/Add/EndUpdate` + `prim.SetState_Selected(true)`,
+  `SelectedObjectsCount()` / `GetState_SelectecObject(i)` (sic), then `ViewManager_FullUpdate()`; zoom with
+  `GraphicalView_ZoomOnRect(x1,y1,x2,y2)` in absolute internal units + `GraphicalView_ZoomRedraw()`. Selecting a
+  component also counts its designator/comment strings (`U1`+`C1` → 4 selected). The document is **not** marked
+  modified. `pcb.select`.
+- Timing: hidden-loaded board — first call ~6 s (load), then 1.0–1.5 s per call (the board iterator over 10k
+  tracks dominates); board open in the editor — ~0.5 s. `pcb.listPrimitives` over all tracks ≈ 3.5 s.
+- Layer names from the layer-name cache are the display names (`Top Layer`, `Mid-Layer 1`, `Top Overlay`…);
+  `TV6_Layer` ids (`TopLayer`, `Mechanical1`) also match. A name matching nothing must be an error, not an empty list.
+
+Workspace / client:
+- `IClient.OpenDocumentShowOrHide(kind, path, showInProjectTree)` + `ShowDocument` / `ShowDocumentDontFocus` open
+  or raise an editor tab from a bridge call (used by `workspace.openDocument`; PCB open ≈ 6 s). `GetDocumentKindFromDocumentPath`
+  gives the kind. `IServerDocument.GetIsShown()` = has an editor tab.
+- Extension loading on a fresh profile requires an `ExtensionsRegistry.xml` entry (see Hosting model).
+- Altium single-instance forwarding: `X2.EXE <file>` opens the file in the running instance; `-R` only acts at cold start.
+
 ## Researched, not yet implemented
 
 ### Schematic object model (`SCH`)
@@ -153,7 +222,7 @@ module's* documents — use the workspace for the global view.
       for (var o = it.FirstSchObject(); o != null; o = it.NextSchObject()) { ... }
   } finally { doc.SchIterator_Destroy(ref it); }
   ```
-  Real example: `D:\AD_Disasm\Code\System\Altium.PinsPanel\Altium\PinsPanel\Infrastructure\Extension.cs:35-61`.
+  Real example: `<DisasmRoot>` → `Altium.PinsPanel.dll-*\Altium\PinsPanel\Infrastructure\Extension.cs` (iterator loop).
 - `TObjectId` (SCH): `eWire`, `eNetLabel`, `eDesignator`, `eSchComponent`, `eParameter`, `ePin`, `ePort`,
   `ePowerObject`, `eSheetSymbol`, `eBus`, `eJunction`…
 - Common: `GetState_ObjectId()`, `GetState_UniqueId()`, `GetState_Text()`, `GetState_Location()` → `DXP.Point {X,Y}`

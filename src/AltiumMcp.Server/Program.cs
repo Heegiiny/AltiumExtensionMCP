@@ -53,11 +53,18 @@ internal static class McpServerInfo
         typeof(McpServerInfo).Assembly.GetName().Version?.ToString(3) ?? "0.1.0";
 
     public const string Instructions =
-        "Read-only access to the running Altium Designer via an in-process bridge. " +
-        "Workflow: altium_ping → altium_get_workspace → altium_list_projects → altium_get_project_structure → " +
-        "altium_list_components / altium_list_nets (use filter+limit) → altium_get_component / altium_get_net. " +
-        "Project identifiers are full file paths; component ids are schematic UniqueIds; net ids are flattened net names. " +
-        "If a tool returns BRIDGE_UNAVAILABLE, follow the hints (Altium must be running with the AltiumExtensionMCP extension loaded).";
+        "Structured, read-only access to the design open in the running Altium Designer (schematic + PCB) via an in-process bridge. " +
+        "The PROJECT is the primary context: component and net lookups resolve across the whole compiled project, and closed sheets/boards are loaded on demand — you never need to open documents to read them. " +
+        "Workflow: altium_ping → altium_get_workspace → altium_get_project_agent_docs (follow AGENTS.md if present) → altium_get_project_structure → " +
+        "compact inventory first (altium_list_components with filter/fields, e.g. filter 'U*' then 'J*', 'Q*') → relevant connectivity (altium_get_components / altium_get_nets / altium_trace_connectivity) → targeted full detail (detail='full') only where needed. " +
+        "Token discipline: use 'fields', 'limit', 'filter', detail='summary'; default responses already omit GUIDs, hidden parameters, models and geometry. " +
+        "Identities: project = full .PrjPcb path; component id = schematic UniqueId (also accepts designator); net id = 'netId' (also accepts name; AMBIGUOUS_OBJECT lists candidates when a name is not unique). " +
+        "A project net is one object across sheets: altium_get_net returns documentPaths + per-sheet segments; never treat a net as belonging to a single sheet. " +
+        "Sheet-level (altium_*_sheet_*) and board-level (altium_*_pcb_*) tools give geometry/placement; use them after the compiled facts. " +
+        "Selection: call altium_get_selection ONLY when the user explicitly refers to what they selected ('this', 'the selected part'); an incidental selection means nothing. " +
+        "Cross probe: with the 'Follow MCP queries in Altium' setting (altium_get_settings / panel checkbox) or crossProbe=true, lookups select and zoom to the object in the editor; this is editor state only and never modifies documents. " +
+        "Errors are structured (code, message, hints, correlationId): INVALID_ARGUMENT, DOCUMENT_NOT_FOUND, DOCUMENT_NOT_OPEN, OBJECT_NOT_FOUND, AMBIGUOUS_OBJECT, NOT_COMPILED, ALTIUM_API_ERROR, RESULT_TOO_LARGE, BRIDGE_UNAVAILABLE — follow the hints; never pass placeholder strings like 'None' for omitted arguments. " +
+        "Analysis-only requests never authorize creating, editing or saving files; documentation writes need an explicit request.";
 }
 
 internal static class DebugCli

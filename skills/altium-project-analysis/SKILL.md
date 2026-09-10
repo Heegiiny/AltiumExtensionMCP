@@ -41,6 +41,18 @@ believes about the design. Nothing in this skill modifies the design.
 
 If no `.PrjPcb` is open, stop and ask the user to open one; the project tools need it.
 
+You do not need to open sheets or boards to read them: `sch.*`/`pcb.*` load closed documents hidden.
+Use `altium_open_document` only when you want the engineer to *see* something; it changes editor state
+(tab focus), never design data. Pass `documentPath` explicitly to every sheet/board tool instead of
+relying on "the active document".
+
+To *point at* things for the engineer use `altium_select_on_sheet` / `altium_select_on_pcb`: they open
+the document, select the named components / nets / pads / objects and zoom to them (editor state only;
+nothing is modified, the document is not marked dirty). Use them when you report a finding tied to
+specific objects ("U2 pin 7 is unconnected", "GND has 3 unrouted connections"), and check `notFound` in
+the result — an unmatched designator means you named something that is not on that document. Call with
+no targets to clear the selection when you are done.
+
 ## 3. Structure before detail
 
 `altium_get_project_structure` once per project. Read from it:
@@ -82,30 +94,51 @@ graphical objects that the compiled model does not carry (wires, net labels, por
   (title, revision). `documentPath` comes from `altium_get_project_structure`; closed sheets are
   loaded hidden (`wasLoadedOnDemand=true`) - this does not modify anything.
 - `altium_list_sheet_objects` with `types` narrowed to what you need (`["NetLabel","Port","PowerObject"]`
-  for connectivity by name; `["Component"]` for placement; `["Wire"]` only when tracing geometry -
-  wires carry `vertices` and are verbose). `filter` matches `text` (label/port name, designator).
-- `altium_get_sheet_component` for one part as drawn: `designator` may be `U1A`/`U1B` (multi-part),
-  pins with sheet coordinates and hidden-net names, all parameters with visibility flags,
-  `managed` GUIDs when the part comes from a Workspace/Vault.
-- Coordinates are mils from the sheet's bottom-left corner; the compiled component `id` ends with
-  the sheet component `id` (UniqueId), which is how you map between the two models.
+  for connectivity by name; `["Component"]` for placement; `["SheetSymbol","SheetEntry"]` for the
+  hierarchy as drawn - entries come with `owner` = sheet symbol name and `ioType`/`side`; `["Wire"]` only
+  when tracing geometry - wires carry `vertices` and are verbose). `filter` matches `text` (label/port
+  name, designator). Results are in drawing order, containers first: request one type per call when you
+  page, otherwise a page may hold only the first type.
+- `altium_get_sheet_component` for one part as drawn. `component` accepts the designator as drawn
+  (`U2`), a multi-part form (`U2A`, `U2B` - each part is a separate sheet object), the sheet `id`, or the
+  **physical** designator / compiled `id` from the project tools when the project is compiled. The
+  result carries `physicalDesignator` and `compiledIds` (several on multi-channel sheets - one per
+  channel), pins with sheet coordinates and hidden-net names, all parameters with visibility flags,
+  `managed` GUIDs when the part comes from a Workspace/Vault. `OBJECT_NOT_FOUND` lists
+  `designatorsOnSheet` - use it instead of guessing.
+- Designators differ between models on hierarchical designs: the sheet shows the logical designator
+  (`U2`), the board/BOM the physical one (`U4`). Always say which one you mean; join the models through
+  `compiledIds` / `id`, not through designator text.
+- Coordinates are mils from the sheet's bottom-left corner. Sheets that only wire sub-sheets have zero
+  components - that is normal, not an error.
 
 ## 6. Board-level questions (PCB object model)
 
-- `altium_get_board` first: outline size, `layerStack` (signal/plane/dielectric order, copper
-  thickness), `objectCounts`, `violationCount` (current DRC markers), `classes`. The `.PcbDoc` path is
-  `primaryImplementationDocument` from the structure call.
+- `altium_get_board` first: outline size, `layerStack` (copper layers with thickness; dielectrics are
+  not reported yet), `objectCounts`, `classes`, `violationCount`. The `.PcbDoc` path is
+  `primaryImplementationDocument` from the structure call. Expect ~1 s per PCB call on a board that is
+  not open in the editor (first call ~6 s); do not treat that as a hang.
+- `violationCount` and `Violation` primitives are **0 until a DRC has been run**. Zero without a run means
+  "no DRC results present", not "the board passes DRC". To know for sure, run `altium_run_drc` (seconds to
+  minutes; refreshes the violation markers and writes a report — editor state, no design change) and read
+  `violationCount`, `byKind`, `byRule` and the `violations[]` list (rule, description, layer, bounds,
+  offending primitives, net). `altium_list_drc_violations` reads existing markers without re-running.
+  Point the engineer at a violation with `altium_select_on_pcb` (the primitives are named in
+  `primitive1`/`primitive2`; select the component or net they belong to).
 - Placement: `altium_list_pcb_components` (filter by designator/footprint, `layer="Bottom"` for
   bottom-side parts); `altium_get_pcb_component` for pads with nets and geometry. `sourceUniqueId`
   equals the compiled component `id` - use it, not the designator, to join schematic and PCB data
   in multi-channel designs.
-- Connectivity/routing: `altium_list_pcb_nets` (`connectivelyInvalid=true` = unrouted/broken in the
-  editor's view, `routedLengthMils`), `altium_get_pcb_net` for pads, layers used and track length.
-  Nets present in `altium_list_nets` but absent here mean the PCB is out of sync with the schematic.
+- Connectivity/routing: `altium_list_pcb_nets` - `unroutedConnectionCount` is the number of remaining
+  ratsnest lines (absent = fully routed as far as the editor knows), `routedLengthMils` is Altium's own
+  length; `altium_get_pcb_net` for pads, layers used and track length from geometry. Nets present in
+  `altium_list_nets` but absent here mean the PCB is out of sync with the schematic.
 - Rules: `altium_list_pcb_rules` (filter `"Clearance"`, `"Width"`, `"Routing*"`); `summary` is the
   constraint text; higher `priority` number = lower priority.
 - Primitives: `altium_list_pcb_primitives` is the heavy tool. Always give `layer` and/or `net`, keep
-  `limit` <= 200 and page by `offset`. `types=["Violation"]` lists DRC markers with descriptions.
+  `limit` <= 200 and page by `offset`. Use layer names from `altium_get_board` (`"Top Layer"`,
+  `"Bottom Overlay"`); an unknown layer returns `INVALID_PARAMS` with the valid candidates.
+  `types=["Violation"]` lists DRC markers with descriptions (after a DRC run).
   Coordinates are mils relative to the board origin - the same numbers the PCB editor shows.
 
 ## 7. Verify before you conclude
@@ -124,6 +157,11 @@ Do not declare a project fully analysed if any of these hold:
 
 - the project was not compiled (`isCompiled=false`) or you did not read `violations`;
 - you paged through fewer items than `total` for a list you are drawing conclusions from;
+- you are making a DRC claim without having run `altium_run_drc` (or read a fresh
+  `altium_list_drc_violations`) - only Altium's DRC can clear a board;
+- the question needs a visual judgement (silkscreen legibility, placement aesthetics, routing style) -
+  no rendering tool exists; select the objects for the engineer with `altium_select_on_*` and say that
+  you reasoned from geometry only;
 - the question touches library health, variants or Workspace/server state (not available yet);
 - any tool call returned an error you did not resolve.
 

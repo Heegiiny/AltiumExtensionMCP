@@ -53,6 +53,9 @@ public sealed class BridgeError
     /// <summary>Optional structured details (e.g. exception type, stack, hints).</summary>
     public Dictionary<string, string>? Details { get; set; }
 
+    /// <summary>Short id also written to the bridge log line for this failure; quote it when reporting a problem.</summary>
+    public string? CorrelationId { get; set; }
+
     public BridgeError() { }
 
     public BridgeError(string code, string message, Dictionary<string, string>? details = null)
@@ -68,7 +71,12 @@ public static class BridgeErrorCodes
 {
     public const string Internal = "INTERNAL";
     public const string UnknownMethod = "UNKNOWN_METHOD";
-    public const string InvalidParams = "INVALID_PARAMS";
+    /// <summary>Missing/invalid argument (incl. placeholder paths such as "None", "null", ""). Formerly INVALID_PARAMS.</summary>
+    public const string InvalidParams = "INVALID_ARGUMENT";
+    /// <summary>An Altium COM/API call threw; full exception is in the bridge log under the correlation id.</summary>
+    public const string AltiumApiError = "ALTIUM_API_ERROR";
+    /// <summary>The caller gave too little context to choose between several distinct objects with the same display name; details/candidates list them.</summary>
+    public const string AmbiguousObject = "AMBIGUOUS_OBJECT";
     public const string AltiumBusy = "ALTIUM_BUSY";
     public const string NoWorkspace = "NO_WORKSPACE";
     public const string NoActiveProject = "NO_ACTIVE_PROJECT";
@@ -91,6 +99,9 @@ public static class BridgeMethods
     // system.*  — bridge and host diagnostics
     public const string SystemPing = "system.ping";
     public const string SystemGetEnvironment = "system.getEnvironment";
+    /// <summary>Persistent bridge settings ("Follow MCP queries in Altium" = cross probe).</summary>
+    public const string SystemGetSettings = "system.getSettings";
+    public const string SystemSetSettings = "system.setSettings";
 
     // workspace.* — Altium workspace (project group) level
     public const string WorkspaceGetInfo = "workspace.getInfo";
@@ -98,18 +109,27 @@ public static class BridgeMethods
     public const string WorkspaceListOpenDocuments = "workspace.listOpenDocuments";
     /// <summary>Opens/shows a document in its editor (editor state only; never modifies design data).</summary>
     public const string WorkspaceOpenDocument = "workspace.openDocument";
+    /// <summary>Reads the user's current editor selection (read-only).</summary>
+    public const string WorkspaceGetSelection = "workspace.getSelection";
 
     // project.* — a single project (default: focused project)
     public const string ProjectGetStructure = "project.getStructure";
+    public const string ProjectGetAgentDocs = "project.getAgentDocs";
     public const string ProjectListComponents = "project.listComponents";
     public const string ProjectGetComponent = "project.getComponent";
+    public const string ProjectGetComponents = "project.getComponents";
     public const string ProjectListNets = "project.listNets";
     public const string ProjectGetNet = "project.getNet";
+    public const string ProjectGetNets = "project.getNets";
+    /// <summary>Bounded connectivity walk from a component or net.</summary>
+    public const string ProjectTrace = "project.trace";
 
     // sch.* — schematic sheet object model (geometry, per sheet)
     public const string SchGetSheet = "sch.getSheet";
     public const string SchListObjects = "sch.listObjects";
     public const string SchGetComponent = "sch.getComponent";
+    /// <summary>Selects (highlights) objects in the schematic editor; editor state only, no design data is modified.</summary>
+    public const string SchSelect = "sch.select";
 
     // pcb.* — PCB board object model (geometry, layers, rules)
     public const string PcbGetBoard = "pcb.getBoard";
@@ -119,14 +139,25 @@ public static class BridgeMethods
     public const string PcbGetNet = "pcb.getNet";
     public const string PcbListRules = "pcb.listRules";
     public const string PcbListPrimitives = "pcb.listPrimitives";
+    /// <summary>Reads violations already stored on the board (from the last DRC / online DRC).</summary>
+    public const string PcbListViolations = "pcb.listViolations";
+    /// <summary>
+    /// Runs the batch DRC. Analysis, not a design edit: it refreshes the violation markers on the board (editor state)
+    /// and writes a report file; copper/geometry are untouched.
+    /// </summary>
+    public const string PcbRunDrc = "pcb.runDrc";
+    /// <summary>Selects (highlights) components/nets/pads in the PCB editor; editor state only, no design data is modified.</summary>
+    public const string PcbSelect = "pcb.select";
 
     public static readonly IReadOnlyList<string> All = new[]
     {
-        SystemPing, SystemGetEnvironment,
-        WorkspaceGetInfo, WorkspaceListProjects, WorkspaceListOpenDocuments, WorkspaceOpenDocument,
-        ProjectGetStructure, ProjectListComponents, ProjectGetComponent, ProjectListNets, ProjectGetNet,
-        SchGetSheet, SchListObjects, SchGetComponent,
+        SystemPing, SystemGetEnvironment, SystemGetSettings, SystemSetSettings,
+        WorkspaceGetInfo, WorkspaceListProjects, WorkspaceListOpenDocuments, WorkspaceOpenDocument, WorkspaceGetSelection,
+        ProjectGetStructure, ProjectGetAgentDocs, ProjectListComponents, ProjectGetComponent, ProjectGetComponents,
+        ProjectListNets, ProjectGetNet, ProjectGetNets, ProjectTrace,
+        SchGetSheet, SchListObjects, SchGetComponent, SchSelect,
         PcbGetBoard, PcbListComponents, PcbGetComponent, PcbListNets, PcbGetNet, PcbListRules, PcbListPrimitives,
+        PcbListViolations, PcbRunDrc, PcbSelect,
     };
 }
 

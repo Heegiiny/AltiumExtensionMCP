@@ -85,8 +85,15 @@ public sealed class GetSchComponentParams
 {
     public string? DocumentPath { get; set; }
     public bool LoadIfClosed { get; set; } = true;
-    /// <summary>Designator as drawn on the sheet (e.g. "U1") or the sheet component UniqueId.</summary>
+    /// <summary>
+    /// Designator as drawn on the sheet ("U2", also "U2A" for a multi-part symbol), the sheet component UniqueId,
+    /// or — when the owning project is compiled — the physical designator / compiled UniqueId from project.*.
+    /// </summary>
     public string Component { get; set; } = string.Empty;
+    /// <summary>summary | connectivity (default: identity + pins with hidden nets) | full (parameters, models, managed links, geometry).</summary>
+    public string? Detail { get; set; }
+    /// <summary>Per-call override of the "Follow MCP queries in Altium" setting (select + zoom to the symbol).</summary>
+    public bool? CrossProbe { get; set; }
 }
 
 public sealed class SchComponentDetail
@@ -94,8 +101,14 @@ public sealed class SchComponentDetail
     public string DocumentPath { get; set; } = string.Empty;
     public string Id { get; set; } = string.Empty;
     public string Designator { get; set; } = string.Empty;
-    /// <summary>Physical designator stored on the designator object (after annotation / channel expansion), if any.</summary>
+    /// <summary>
+    /// Physical designator (after annotation / channel expansion). Taken from the designator object when Altium fills
+    /// it, otherwise from the compiled model of the owning project (several, comma-separated, for multi-channel sheets).
+    /// Null when the project is not compiled.
+    /// </summary>
     public string? PhysicalDesignator { get; set; }
+    /// <summary>Compiled component ids (project.* <c>id</c>) that originate from this sheet component; null if not compiled.</summary>
+    public List<string>? CompiledIds { get; set; }
     public string? Comment { get; set; }
     public string? Description { get; set; }
     public string? LibReference { get; set; }
@@ -110,11 +123,16 @@ public sealed class SchComponentDetail
     public int PartCount { get; set; }
     public int CurrentPartId { get; set; }
     public int DisplayMode { get; set; }
-    /// <summary>Managed component (Workspace / Content Vault) links, if the part is managed.</summary>
+    /// <summary>Managed component (Workspace / Content Vault) links, if the part is managed — full only.</summary>
     public ManagedLink? Managed { get; set; }
-    public Dictionary<string, SchParameterInfo> Parameters { get; set; } = new();
-    public List<SchPinInfo> Pins { get; set; } = new();
-    public List<ImplementationInfo> Implementations { get; set; } = new();
+    /// <summary>Parameters — full only (connectivity keeps only Value-like visible parameters out; use full for all).</summary>
+    public Dictionary<string, SchParameterInfo>? Parameters { get; set; }
+    /// <summary>Pins (connectivity, full). Geometry per pin only at full.</summary>
+    public List<SchPinInfo>? Pins { get; set; }
+    /// <summary>Models — full only.</summary>
+    public List<ImplementationInfo>? Implementations { get; set; }
+    /// <summary>"scheduled" when the call queued a cross probe (select + zoom) to this symbol.</summary>
+    public string? CrossProbe { get; set; }
 }
 
 public sealed class ManagedLink
@@ -143,9 +161,10 @@ public sealed class SchPinInfo
     public bool IsHidden { get; set; }
     /// <summary>Hidden power pins connect to this net implicitly.</summary>
     public string? HiddenNetName { get; set; }
-    public double X { get; set; }
-    public double Y { get; set; }
-    public int Rotation { get; set; }
-    public double LengthMils { get; set; }
+    /// <summary>Geometry (full detail only).</summary>
+    public double? X { get; set; }
+    public double? Y { get; set; }
+    public int? Rotation { get; set; }
+    public double? LengthMils { get; set; }
     public string? Description { get; set; }
 }

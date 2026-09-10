@@ -35,6 +35,23 @@ internal sealed class SystemQueries
         };
     }
 
+    public BridgeSettingsInfo GetSettings() => new()
+    {
+        FollowMcpQueries = BridgeSettings.FollowMcpQueries,
+        SettingsPath = BridgeSettings.FilePath,
+    };
+
+    /// <summary>Changes persistent bridge settings (editor behaviour only; never design data).</summary>
+    public BridgeSettingsInfo SetSettings(SetSettingsParams? p)
+    {
+        if (p?.FollowMcpQueries is bool follow)
+        {
+            BridgeSettings.FollowMcpQueries = follow;
+        }
+
+        return GetSettings();
+    }
+
     public EnvironmentInfo GetEnvironment()
     {
         IClient client = Client;
