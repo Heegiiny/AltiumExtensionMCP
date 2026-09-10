@@ -278,3 +278,59 @@ public sealed class PcbPrimitiveListResult
     public int Returned { get; set; }
     public List<PcbPrimitive> Items { get; set; } = new();
 }
+
+/// <summary>pcb.runDrc: run the batch design rule check and return a structured violation summary.</summary>
+public sealed class RunDrcParams
+{
+    public string? DocumentPath { get; set; }
+    public bool LoadIfClosed { get; set; } = true;
+    /// <summary>Max violations returned inline (default 200, max 2000); counts are always complete.</summary>
+    public int Limit { get; set; } = 200;
+    /// <summary>Explicit report path (.txt or .html by extension). Default: %LOCALAPPDATA%\AltiumMcp\reports\{board}-DRC-{stamp}.txt.</summary>
+    public string? ReportPath { get; set; }
+}
+
+/// <summary>pcb.listViolations: read the violations currently stored on the board (no DRC run).</summary>
+public sealed class ListViolationsParams
+{
+    public string? DocumentPath { get; set; }
+    public bool LoadIfClosed { get; set; } = true;
+    /// <summary>Filter on rule name, rule kind or description: substring or wildcard.</summary>
+    public string? Filter { get; set; }
+    public int Offset { get; set; }
+    public int Limit { get; set; } = 200;
+}
+
+public sealed class PcbViolationInfo
+{
+    public string Rule { get; set; } = string.Empty;
+    /// <summary>Rule kind (Clearance, MaxMinWidth, ShortCircuit, UnRoutedNet, SilkToSolderMaskClearance, ...).</summary>
+    public string Kind { get; set; } = string.Empty;
+    /// <summary>Altium's violation description, e.g. "Clearance Constraint: (3.2mil < 6mil) Between Pad U1-3 and Track ...".</summary>
+    public string? Description { get; set; }
+    public string? Layer { get; set; }
+    /// <summary>Violation marker bounds [x1, y1, x2, y2], mils relative to the board origin.</summary>
+    public double[]? Bounds { get; set; }
+    /// <summary>Descriptor strings of the offending primitives (e.g. "Pad U1-3(1200mil,850mil) on Multi-Layer").</summary>
+    public string? Primitive1 { get; set; }
+    public string? Primitive2 { get; set; }
+    public string? Net { get; set; }
+}
+
+public sealed class PcbDrcResult
+{
+    public string DocumentPath { get; set; } = string.Empty;
+    /// <summary>True when a DRC was executed by this call (pcb.runDrc); false when violations were only read.</summary>
+    public bool Ran { get; set; }
+    public bool? RunSucceeded { get; set; }
+    public string? ReportPath { get; set; }
+    public long DurationMs { get; set; }
+    /// <summary>Total violations on the board after the run (all kinds).</summary>
+    public int ViolationCount { get; set; }
+    public Dictionary<string, int> ByRule { get; set; } = new();
+    public Dictionary<string, int> ByKind { get; set; } = new();
+    public int Offset { get; set; }
+    public int Returned { get; set; }
+    public List<PcbViolationInfo> Violations { get; set; } = new();
+    public List<string>? Notes { get; set; }
+}

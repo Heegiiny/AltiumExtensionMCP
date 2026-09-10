@@ -221,6 +221,7 @@ public sealed class McpServerModule : ServerModule
         _router.Register<SheetQueryParams>(BridgeMethods.SchGetSheet, p => sch.GetSheet(p));
         _router.Register<ListSheetObjectsParams>(BridgeMethods.SchListObjects, p => sch.ListObjects(p));
         _router.Register<GetSchComponentParams>(BridgeMethods.SchGetComponent, p => sch.GetComponent(p));
+        _router.Register<SelectParams>(BridgeMethods.SchSelect, p => sch.Select(p));
 
         var pcb = new PcbQueries();
         _router.Register<BoardQueryParams>(BridgeMethods.PcbGetBoard, p => pcb.GetBoard(p));
@@ -230,6 +231,9 @@ public sealed class McpServerModule : ServerModule
         _router.Register<GetPcbNetParams>(BridgeMethods.PcbGetNet, p => pcb.GetNet(p));
         _router.Register<ListPcbRulesParams>(BridgeMethods.PcbListRules, p => pcb.ListRules(p));
         _router.Register<ListPcbPrimitivesParams>(BridgeMethods.PcbListPrimitives, p => pcb.ListPrimitives(p));
+        _router.Register<ListViolationsParams>(BridgeMethods.PcbListViolations, p => pcb.ListViolations(p));
+        _router.Register<RunDrcParams>(BridgeMethods.PcbRunDrc, p => pcb.RunDrc(p));
+        _router.Register<SelectParams>(BridgeMethods.PcbSelect, p => pcb.Select(p));
     }
 
     private static string? SafeString(Func<string?> f)

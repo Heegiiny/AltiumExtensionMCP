@@ -1,6 +1,9 @@
 # MCP tools
 
-All tools are read-only, idempotent and return JSON text content. On failure the result has
+All tools are idempotent and return JSON text content; none modifies design data. Three tools change
+**editor state** only and are flagged `ReadOnly=false, Destructive=false`: `altium_open_document`
+(tab), `altium_select_on_sheet` / `altium_select_on_pcb` (selection + zoom), `altium_run_drc`
+(refreshes violation markers, writes a report). On failure the result has
 `isError: true` and the text is `{"error":{"code","message"},"details":{...hints}}`.
 Absent boolean/number fields in results mean `false`/`0` (compact wire format, see DECISIONS D6).
 
@@ -74,13 +77,23 @@ editor displays); rotations in degrees CCW; sizes in mils. Calls take ~1–1.5 s
 
 | Tool | Bridge method | Input | Output |
 |------|---------------|-------|--------|
-| `altium_get_board` | `pcb.getBoard` | common | `document, isOpenInEditor, wasLoadedOnDemand, displayUnit, originXMils, originYMils, outlineBounds[x1,y1,x2,y2], boardWidthMils, boardHeightMils, layerStack[]{name, id, kind Signal/Plane/Dielectric/Other, copperThicknessMils, isUsed}, signalLayerCount, objectCounts{Component, Pad, Via, Track, Arc, Polygon, Region, Fill, Text, Net, Rule, Class, Violation, ComponentBody, Dimension, ...}, classes[]{name, kind, isSuperClass, memberCount}, ruleCount, violationCount` — `violationCount`/`Violation` objects exist only after a DRC run in Altium (0 on a freshly loaded board); dielectric layers are not reported yet (no .NET getters). |
+| `altium_get_board` | `pcb.getBoard` | common | `document, isOpenInEditor, wasLoadedOnDemand, displayUnit, originXMils, originYMils, outlineBounds[x1,y1,x2,y2], boardWidthMils, boardHeightMils, layerStack[]{name, id, kind Signal/Plane/Dielectric/Other, copperThicknessMils, isUsed}, signalLayerCount, objectCounts{Component, Pad, Via, Track, Arc, Polygon, Region, Fill, Text, Net, Rule, Class, Violation, ComponentBody, Dimension, ...}, classes[]{name, kind, isSuperClass, memberCount}, ruleCount, violationCount` — `violationCount`/`Violation` objects exist only after a DRC run (0 on a freshly loaded board) — run `altium_run_drc` for a meaningful number; dielectric layers are not reported yet (no .NET getters). |
 | `altium_list_pcb_components` | `pcb.listComponents` | common + `filter?`, `layer?` (Top/Bottom), `offset?`, `limit?` (100/2000) | `documentPath, total, offset, returned, items[]{id (PCB UniqueId), designator, sourceUniqueId (→ compiled component id), footprint, comment, layer, x, y, rotation, heightMils, bounds, padCount, sourceLibReference, sourceDescription, sourceHierarchicalPath, isLocked, hasDrcError}` |
 | `altium_get_pcb_component` | `pcb.getComponent` | common + `component` (designator, PCB UniqueId or schematic sourceUniqueId) | `documentPath, summary{...}, footprintDescription, sourceFootprintLibrary, sourceComponentLibrary, sourceDesignItemId, default3DModel, managed{}, isBga, enablePinSwapping, enablePartSwapping, designatorVisible, commentVisible, pads[]{name, net, x, y, rotation, layer, isSurfaceMount, shape, sizeXMils, sizeYMils, holeSizeMils, plated}, primitiveCounts{Track, Arc, Region, ComponentBody, Text, ...}` |
 | `altium_list_pcb_nets` | `pcb.listNets` | common + `filter?`, `offset?`, `limit?` | `documentPath, total, offset, returned, items[]{name, pinCount, viaCount, routedLengthMils, inDifferentialPair, unroutedConnectionCount}` — `unroutedConnectionCount` = remaining ratsnest lines (absent = fully routed). Altium's `ConnectivelyInvalid` flag is not exposed: live it is true for every net regardless of state. |
 | `altium_get_pcb_net` | `pcb.getNet` | common + `net` | `documentPath, summary{}, pads[]{pinDescriptor 'U1-3', ...}, trackCount, arcCount, polygonCount, regionCount, layers[], trackLengthMils` (sum of track geometry; `summary.routedLengthMils` is Altium's own figure incl. arcs/vias) |
 | `altium_list_pcb_rules` | `pcb.listRules` | common + `filter?` (kind or name), `includeDisabled?` (true) | `documentPath, total, rules[]{name, kind, enabled, priority, scope1, scope2, summary, comment}` sorted by kind, priority (verified: `FanoutControl` 1..5, `PolygonConnectStyle` 1..3) |
 | `altium_list_pcb_primitives` | `pcb.listPrimitives` | common + `types?[]` (default Track, Arc, Via, Polygon, Region, Fill, Text; also Pad, ComponentBody, Dimension, Coordinate, Violation), `layer?` (name or id), `net?`, `freeOnly?`, `offset?`, `limit?` (200/2000) | `documentPath, total, offset, returned, items[]{type, layer, net, component, geometry[], widthMils, sizeMils, holeSizeMils, text, detail, hasDrcError}` — geometry: track `[x1,y1,x2,y2]`, via/pad/text/fill `[x,y]`, arc `[cx,cy,r,startDeg,endDeg]`, polygon/region/other = bounds. A `layer` that matches no layer carrying the requested types → `INVALID_PARAMS` with `layersWithMatchingPrimitives` (a typo used to return an empty list silently). |
+
+| `altium_list_drc_violations` | `pcb.listViolations` | common + `filter?` (rule/kind/description), `offset?`, `limit?` (200/2000) | `documentPath, ran=false, violationCount, byRule{}, byKind{}, offset, returned, violations[]{rule, kind, description, layer, bounds[x1,y1,x2,y2], primitive1, primitive2, net}, notes[]` — reads the markers stored on the board; 0 may mean "clean" **or** "no DRC run yet" (note says so). Verified live 2026-09-10. |
+| `altium_run_drc` | `pcb.runDrc` | common + `limit?`, `reportPath?` (.txt/.html) | same shape + `ran=true, runSucceeded, reportPath, durationMs` — `IPCB_Board.RunBatchDesignRuleCheck(report, eDRC_Text/HTML, showReport=false, publish=false)`, then the violation objects are re-read. Verified live 2026-09-10: Bluetooth Sentinel 1.6 s, 0 violations, report lists every enabled rule with its count; works on a hidden-loaded board. Not yet seen live: a board **with** violations (the `ToViolation` mapping — rule via `IPCB_Violation.GetState_Rule()`, description, primitive descriptors — is implemented but unexercised). |
+| `altium_select_on_pcb` | `pcb.select` | `documentPath?`, `components?[]` (designator / UniqueId / sourceUniqueId), `nets?[]`, `pads?[]` (`"U1-3"`), `clearFirst?` (true), `zoomTo?` (true), `focus?` (true) | `documentPath, selectedCount, matched[], notFound[], bounds[x1,y1,x2,y2], isOpenInEditor, zoomed, notes[]` — opens/focuses the board, `SelectedObjects_Clear/Add` + `SetState_Selected`, zooms with `GraphicalView_ZoomOnRect` (bounds + 15 %), `ViewManager_FullUpdate`. No targets → clears the selection. Verified live 2026-09-10 (U1+C1 → 4 selected objects incl. designator strings; GND → 628 primitives; typo → `notFound`). |
+
+## Schematic editor selection
+
+| Tool | Bridge method | Input | Output |
+|------|---------------|-------|--------|
+| `altium_select_on_sheet` | `sch.select` | `documentPath?`, `components?[]` (`U2` = all parts, `U2A`, physical designator, sheet UniqueId), `nets?[]` (text of net labels / ports / power objects / sheet entries / cross-sheet connectors), `objects?[]` (UniqueIds from `sch.listObjects`), `clearFirst?`, `zoomTo?`, `focus?` | same shape as `pcb.select` — `ISch_GraphicalObject.SetState_Selection` + `GraphicallyInvalidate`, `UpdateDisplayForCurrentSheet`, zoom via the `Sch:Zoom` process (`Object=Selected`) sent with `IProcessLauncher.SendMessage`. Wires are not selected for a net (uncompiled sheets have no wire→net mapping). Verified live 2026-09-10 (`U2`, `U2A`, UniqueId, `GND` → 7 power objects; top sheet without components → all `notFound`, correctly). |
 
 Cross-referencing (verified on all four ICs): PCB `sourceUniqueId` ↔ compiled `project.listComponents[].id`;
 PCB `designator` ↔ physical designator; PCB net names ↔ compiled net names (`project.listNets`);
@@ -107,11 +120,15 @@ sheet component ↔ compiled via `compiledIds` (`sch.getComponent`).
 ## Planned (not implemented)
 
 Phase 1 continuation — read-only:
-- `altium_render_sheet` / `altium_render_board` — PNG/SVG of a sheet or board region (layers, zoom-to
-  object/net) for VLM analysis; candidate routes: Altium print/export to image, or a painter over the
-  object model already exposed by `sch.listObjects` / `pcb.listPrimitives`.
-- `altium_run_drc_summary` (batch DRC via `IPCB_Board.RunBatchDesignRuleCheck`), `altium_get_erc_report`
-  (compile + violations already exposed in `project.getStructure`).
+- **Deferred** (2026-09-10, too costly for the value right now; selection tools cover the "show me"
+  need): `altium_render_sheet` / `altium_render_board`. Research result kept for later: PCB has a native
+  route — `IPCB_Board.GetState_MainGraphicalView()` → `IPCB_GraphicalView.RenderToDC(hdc, dpiX, dpiY,
+  destRect, srcRect)` (+ `SetState_TemporaryWindow(w,h)` / `CloseState_TemporaryWindow()` for hidden
+  boards, `SetState_LayerIsDisplayed(V7_LayerBase, bool)` for layer sets); SCH has **no** document-to-image
+  API in the .NET SDK (`IDocumentPainterView` paints to the editor only; `IComponentMetafilePainter.DrawToMetafile`
+  and `PaintLoadedComponentThumbnail` are per-component), so a sheet image needs an own painter over
+  `sch.listObjects` geometry.
+- `altium_get_erc_report` (compile + violations already exposed in `project.getStructure`).
 - `altium_get_component_parameters_bulk` — parameters for many components in one call (BOM view).
 - Layer-stack dielectric details (material, thickness, Dk) — `IPCB_DielectricObject` exposes no
   getters in the .NET SDK; needs `IPCB_LayerStack_V7`/stackup-document research.

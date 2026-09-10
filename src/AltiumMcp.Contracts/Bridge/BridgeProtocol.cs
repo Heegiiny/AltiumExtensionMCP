@@ -110,6 +110,8 @@ public static class BridgeMethods
     public const string SchGetSheet = "sch.getSheet";
     public const string SchListObjects = "sch.listObjects";
     public const string SchGetComponent = "sch.getComponent";
+    /// <summary>Selects (highlights) objects in the schematic editor; editor state only, no design data is modified.</summary>
+    public const string SchSelect = "sch.select";
 
     // pcb.* — PCB board object model (geometry, layers, rules)
     public const string PcbGetBoard = "pcb.getBoard";
@@ -119,14 +121,24 @@ public static class BridgeMethods
     public const string PcbGetNet = "pcb.getNet";
     public const string PcbListRules = "pcb.listRules";
     public const string PcbListPrimitives = "pcb.listPrimitives";
+    /// <summary>Reads violations already stored on the board (from the last DRC / online DRC).</summary>
+    public const string PcbListViolations = "pcb.listViolations";
+    /// <summary>
+    /// Runs the batch DRC. Analysis, not a design edit: it refreshes the violation markers on the board (editor state)
+    /// and writes a report file; copper/geometry are untouched.
+    /// </summary>
+    public const string PcbRunDrc = "pcb.runDrc";
+    /// <summary>Selects (highlights) components/nets/pads in the PCB editor; editor state only, no design data is modified.</summary>
+    public const string PcbSelect = "pcb.select";
 
     public static readonly IReadOnlyList<string> All = new[]
     {
         SystemPing, SystemGetEnvironment,
         WorkspaceGetInfo, WorkspaceListProjects, WorkspaceListOpenDocuments, WorkspaceOpenDocument,
         ProjectGetStructure, ProjectListComponents, ProjectGetComponent, ProjectListNets, ProjectGetNet,
-        SchGetSheet, SchListObjects, SchGetComponent,
+        SchGetSheet, SchListObjects, SchGetComponent, SchSelect,
         PcbGetBoard, PcbListComponents, PcbGetComponent, PcbListNets, PcbGetNet, PcbListRules, PcbListPrimitives,
+        PcbListViolations, PcbRunDrc, PcbSelect,
     };
 }
 

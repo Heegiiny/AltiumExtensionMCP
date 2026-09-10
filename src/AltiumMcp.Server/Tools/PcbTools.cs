@@ -98,4 +98,41 @@ public sealed class PcbTools
         CancellationToken ct = default) =>
         ToolResults.Run(() => _bridge.CallAsync(BridgeMethods.PcbListPrimitives,
             new ListPcbPrimitivesParams { DocumentPath = documentPath, Types = types, Layer = layer, Net = net, FreeOnly = freeOnly, Offset = offset, Limit = limit, LoadIfClosed = loadIfClosed }, ct));
+
+    [McpServerTool(Name = "altium_list_drc_violations", ReadOnly = true, Idempotent = true, OpenWorld = false, Title = "List DRC violations")]
+    [Description("Reads the design-rule violations currently stored on the board (from the last batch or online DRC) without running a check: total count, counts by rule and by kind, and a paginated list with rule name, kind, Altium's description, layer, marker bounds (mils), the two offending primitives and the net. Zero violations may mean 'clean' or 'DRC not run yet' — use altium_run_drc to be sure.")]
+    public Task<CallToolResult> ListViolations(
+        [Description("Full path of the .PcbDoc. Omit for the active PCB document.")] string? documentPath = null,
+        [Description("Filter on rule name, kind or description: substring or wildcard ('Clearance*').")] string? filter = null,
+        [Description("Pagination offset (default 0).")] int offset = 0,
+        [Description("Max items (default 200, max 2000).")] int limit = 200,
+        [Description("Load the board hidden if it is not open (default true).")] bool loadIfClosed = true,
+        CancellationToken ct = default) =>
+        ToolResults.Run(() => _bridge.CallAsync(BridgeMethods.PcbListViolations,
+            new ListViolationsParams { DocumentPath = documentPath, Filter = filter, Offset = offset, Limit = limit, LoadIfClosed = loadIfClosed }, ct));
+
+    [McpServerTool(Name = "altium_run_drc", ReadOnly = false, Idempotent = true, Destructive = false, OpenWorld = false, Title = "Run batch DRC")]
+    [Description("Runs Altium's batch Design Rule Check on the board and returns the result as structured data: run status, report file path, duration, total violation count, counts by rule and by kind, and the first N violations (rule, kind, description, layer, bounds, primitives, net). This refreshes the violation markers on the board (editor state) and writes a report file; copper and geometry are not modified. May take seconds to minutes on large boards.")]
+    public Task<CallToolResult> RunDrc(
+        [Description("Full path of the .PcbDoc. Omit for the active PCB document.")] string? documentPath = null,
+        [Description("Max violations returned inline (default 200, max 2000); counts are always complete.")] int limit = 200,
+        [Description("Report file path (.txt or .html). Default: %LOCALAPPDATA%\\AltiumMcp\\reports\\{board}-DRC-{stamp}.txt")] string? reportPath = null,
+        [Description("Load the board hidden if it is not open (default true).")] bool loadIfClosed = true,
+        CancellationToken ct = default) =>
+        ToolResults.Run(() => _bridge.CallAsync(BridgeMethods.PcbRunDrc,
+            new RunDrcParams { DocumentPath = documentPath, Limit = limit, ReportPath = reportPath, LoadIfClosed = loadIfClosed }, ct));
+
+    [McpServerTool(Name = "altium_select_on_pcb", ReadOnly = false, Idempotent = true, Destructive = false, OpenWorld = false, Title = "Select objects in the PCB editor")]
+    [Description("Highlights objects in the PCB editor so the engineer sees what you refer to: components by designator, whole nets (pads, tracks, arcs, vias, polygons, regions) by name, and pads by descriptor 'U1-3'. Opens/focuses the board, clears the previous selection (unless clearFirst=false) and zooms to the selection. Returns matched/unmatched targets, selected object count and the selection bounds in mils. Editor state only — design data is not modified. Call with no targets to clear the selection.")]
+    public Task<CallToolResult> Select(
+        [Description("Full path of the .PcbDoc. Omit for the active PCB document.")] string? documentPath = null,
+        [Description("Component designators, e.g. [\"U1\",\"C12\"].")] List<string>? components = null,
+        [Description("Net names, e.g. [\"GND\",\"VCC_3V3\"].")] List<string>? nets = null,
+        [Description("Pad descriptors, e.g. [\"U1-3\",\"J2-1\"].")] List<string>? pads = null,
+        [Description("Deselect everything first (default true).")] bool clearFirst = true,
+        [Description("Zoom the view to the selection (default true).")] bool zoomTo = true,
+        [Description("Open/focus the board in the editor (default true).")] bool focus = true,
+        CancellationToken ct = default) =>
+        ToolResults.Run(() => _bridge.CallAsync(BridgeMethods.PcbSelect,
+            new SelectParams { DocumentPath = documentPath, Components = components, Nets = nets, Objects = pads, ClearFirst = clearFirst, ZoomTo = zoomTo, Focus = focus }, ct));
 }

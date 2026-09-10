@@ -68,8 +68,13 @@ so the extension and the server can never disagree about JSON shape, and tests r
 - `Queries/*Queries.cs` — pure "read SDK → DTO" code, one class per method family.
   `SchematicQueries` resolves a sheet (active → `GetSchDocumentByPath` → hidden `LoadSchDocumentByPath`) and
   iterates `ISch_Iterator`; `PcbQueries` wraps board resolution, layer-name cache and `BoardIterator` in
-  `BoardContext` (iterators destroyed in `finally`). `WorkspaceQueries.OpenDocument` is the only handler that
-  changes *editor* state (opens/focuses a tab); it never touches design data.
+  `BoardContext` (iterators destroyed in `finally`). Partial-class files split the big families:
+  `PcbQueries.Drc.cs` (`pcb.runDrc`, `pcb.listViolations`), `PcbQueries.Select.cs`, `SchematicQueries.Select.cs`.
+- `Queries/EditorCommands.cs` — the *editor-state* layer (DECISIONS D13): show a document
+  (`OpenDocumentShowOrHide` + `ShowDocument`) and run Altium processes (`PCB:Zoom`, `Sch:Zoom`, …) through
+  `(IClient as IProcessLauncher).SendMessage(process, params, view)`. Handlers that change editor state
+  (`workspace.openDocument`, `sch.select`, `pcb.select`, `pcb.runDrc`) go through here or through explicit
+  selection/DRC APIs; none touches design data or marks a document modified.
 - `Panel/*` — `ServerPanelView` + WinForms user control showing URL, pid, request count and the
   in-memory log tail.
 - `Installation/AltiumExtensionMCP.ins` — server registration, `PanelInfo`, commands;

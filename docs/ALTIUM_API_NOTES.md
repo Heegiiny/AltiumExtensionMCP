@@ -161,6 +161,19 @@ Schematic (`SCH`):
   `sch.getSheet` on a hidden load ≈ 0.4 s, further calls 40–100 ms.
 - Sheets that only wire sub-sheets (e.g. `Visual_LEDx6.SchDoc`) legitimately have 0 components; managed reused
   sheets live under `<project>\Managed\Sheets\{GUID}\` and appear as normal logical documents.
+- **Selection**: `ISch_GraphicalObject.SetState_Selection(bool)` + `GraphicallyInvalidate()`, then
+  `ISch_Document.UpdateDisplayForCurrentSheet()`. No document-level "deselect all" API → iterate all levels and
+  clear `GetState_Selection()`. `ISch_Component.FullPartDesignator(partId)` did not match `U2A` live; compose
+  `designator + (char)('A' + partId - 1)` as a fallback. `sch.select`.
+- **Running editor processes from C#**: `(GlobalVars.Client as IProcessLauncher).SendMessage("Sch:Zoom", ref "Object=Selected",
+  serverDocument.GetView(0))` — the pattern Altium's own managed servers use (`ActiveBomServerDocument`). Process
+  ids/parameters are in `<AltiumProgramsHome>\System\advsch.rcs` / `AdvPcb.rcs` (`PCB:Zoom` `Action=Selected`,
+  `Sch:DeSelect` `Action=All`, `PCB:DeSelect` `Scope=All`). Works live for zoom-to-selection.
+- **No sheet-to-image API** in the .NET SDK: `ISch_ServerInterface.CreateDocumentPainter()` → `IDocumentPainterView`
+  only repaints the editor; `CreateComponentMetafilePainter().DrawToMetafile(part, colorMode, scaleMode, file)` and
+  `PaintLoadedComponentThumbnail(comp, part, w, h)` (HBITMAP) are per component. PCB does have
+  `IPCB_Board.GetState_MainGraphicalView().RenderToDC(hdc, dpiX, dpiY, dest, src)` (+ `SetState_TemporaryWindow`).
+  Rendering is deferred (ROADMAP).
 
 PCB (`PCB`):
 - `IPCB_Net.GetState_ConnectivelyInvalid()` is **true for every net** — on a hidden-loaded board and also after the
@@ -171,6 +184,16 @@ PCB (`PCB`):
   copper layers (no dielectrics) on the example board. `IPCB_Component.GetState_Name()` returns the designator
   `IPCB_Text`.
 - `eViolationObject` primitives and `violationCount` are 0 until a DRC is run inside Altium.
+- **Batch DRC from code works**: `IPCB_Board.RunBatchDesignRuleCheck(reportPath, TDRCReportFileFormat.eDRC_Text|eDRC_HTML,
+  displayReport=false, publishToWeb=false)` returns true, runs on a **hidden-loaded** board too (1.6 s on the example),
+  writes a `Rule Violations|<rule summary>|<count>` text report and refreshes `eViolationObject` primitives. Per
+  violation: `IPCB_Violation.GetState_Rule()` (→ `IPCB_Rule`), `GetState_Description()`, `GetState_Primitive1/2()`
+  (use `GetState_DescriptorString()`), bounds via `BoundingRectangle()`. No dialog appeared. `pcb.runDrc`.
+- **Selection is editor state**: `board.SelectedObjects_BeginUpdate/Clear/Add/EndUpdate` + `prim.SetState_Selected(true)`,
+  `SelectedObjectsCount()` / `GetState_SelectecObject(i)` (sic), then `ViewManager_FullUpdate()`; zoom with
+  `GraphicalView_ZoomOnRect(x1,y1,x2,y2)` in absolute internal units + `GraphicalView_ZoomRedraw()`. Selecting a
+  component also counts its designator/comment strings (`U1`+`C1` → 4 selected). The document is **not** marked
+  modified. `pcb.select`.
 - Timing: hidden-loaded board — first call ~6 s (load), then 1.0–1.5 s per call (the board iterator over 10k
   tracks dominates); board open in the editor — ~0.5 s. `pcb.listPrimitives` over all tracks ≈ 3.5 s.
 - Layer names from the layer-name cache are the display names (`Top Layer`, `Mid-Layer 1`, `Top Overlay`…);

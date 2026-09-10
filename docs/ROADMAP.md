@@ -25,24 +25,30 @@ Done:
       objects instead of the always-true `ConnectivelyInvalid`; layer typo → `INVALID_PARAMS` with candidates;
       `workspace.openDocument` (editor tab only). 27 unit tests green.
 - [x] Skill `altium-project-analysis` covering project → sheet → board drill-down and cross-referencing.
+- [x] 2026-09-10 **DRC as data**: `pcb.runDrc` (batch DRC via `RunBatchDesignRuleCheck`, report file +
+      structured violations) and `pcb.listViolations` (read stored markers). Verified live (clean board).
+- [x] 2026-09-10 **Editor selection** (`sch.select`, `pcb.select`): highlight components / nets / pads /
+      objects in the open editor and zoom to them, so the engineer sees what the agent refers to. First
+      editor-state tools beyond opening a tab; design data untouched. Verified live. 26 tools total.
+
+Deferred (decided 2026-09-10 — "working MCP first"; pick up when the value is clearer):
+- **Graphical representation** (`altium_render_sheet` / `altium_render_board`). Research done, see
+  `MCP_TOOLS.md` → Planned: PCB has `IPCB_GraphicalView.RenderToDC`; SCH needs an own painter. Selection
+  + the human looking at the screen covers the current need.
 
 Next (ordered):
-1. **Graphical representation** for LLM/VLM analysis: `altium_render_sheet` / `altium_render_board`
-   (PNG/SVG, region/zoom-to-object, layer selection). Research `IServerDocumentView` print/export and
-   PCB `GraphicalView_*` APIs in `<DisasmRoot>` (`Altium.PCB.DocumentViews`, `Altium.SCH.DocumentViews`);
-   fallback: own renderer over `sch.listObjects` / `pcb.listPrimitives` geometry.
-2. **Verification data**: `pcb.runDrc` (batch DRC → violations with descriptions and locations) and an ERC
-   run tool (`DM_CompileEx`), so `violationCount`/`Violation` primitives are populated on demand.
-3. **Layer stack details**: dielectrics (thickness, material, Dk) via `IPCB_LayerStack_V7` / stackup
+1. **ERC run** (`DM_CompileEx` / project compile on demand → `project.getStructure.violations`), so both
+   verification paths (ERC + DRC) are one call away.
+2. **Layer stack details**: dielectrics (thickness, material, Dk) via `IPCB_LayerStack_V7` / stackup
    document; plane layers.
-4. **Analysis helpers** (still primitives): bulk component parameters (BOM view), net → components
+3. **Analysis helpers** (still primitives): bulk component parameters (BOM view), net → components
    cross-reference, unconnected-pin list, `altium_search`.
-5. **Libraries & managed components**: project/installed libraries, symbol/footprint lookup, Workspace
+4. **Libraries & managed components**: project/installed libraries, symbol/footprint lookup, Workspace
    item/revision links per component (`managed{}` GUIDs are already exposed), lifecycle state.
-6. **Toolsets / progressive disclosure**: default `connection+workspace+project`, opt-in `schematic`,
-   `pcb`, `library`, `render`, `verify`; `--toolsets` switch and/or a meta-tool.
-7. **Change notifications**: `INotification` in the extension → `altium_get_changes_since` for safe caching.
-8. Settings dialog (Tools > MCP Bridge > Settings…), panel polish (copy URL, restart, open log).
+5. **Toolsets / progressive disclosure**: default `connection+workspace+project`, opt-in `schematic`,
+   `pcb`, `library`, `verify`; `--toolsets` switch and/or a meta-tool.
+6. **Change notifications**: `INotification` in the extension → `altium_get_changes_since` for safe caching.
+7. Settings dialog (Tools > MCP Bridge > Settings…), panel polish (copy URL, restart, open log).
 
 ## Phase 2 — Workspace-aware synchronization, version inspection, collaboration (read-only first)
 - Connection/session state (`IEDMS_DXPServerManager`), current Workspace, managed projects and their

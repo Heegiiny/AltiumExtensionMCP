@@ -17,7 +17,7 @@ namespace AltiumMcp.Extension.Queries;
 /// Unlike the compiled model (ProjectQueries) this is per sheet and carries geometry.
 /// Coordinates are converted from internal units (1/10000 mil) to mils.
 /// </summary>
-internal sealed class SchematicQueries
+internal sealed partial class SchematicQueries
 {
     private const int MaxLimit = 2000;
 

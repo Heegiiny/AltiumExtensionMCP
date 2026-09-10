@@ -5,7 +5,8 @@ read-only access to a **running Altium Designer**: workspace, open projects, she
 compiled components, nets, pins, parameters and compile violations.
 
 Phase 1 (this repo today) is read/analysis: compiled project model, schematic sheet object model and PCB
-board object model. The architecture is built so that later phases can add Workspace-aware collaboration,
+board object model, batch DRC as structured data, plus editor-state helpers (open a document, select and
+zoom to components/nets so the engineer sees what the agent means). Design data is never modified. The architecture is built so that later phases can add Workspace-aware collaboration,
 schematic/PCB edits, verification loops and an agent harness on top. Target EDA is Altium Designer only.
 See `docs/ROADMAP.md`.
 
@@ -13,7 +14,7 @@ See `docs/ROADMAP.md`.
 MCP client (Claude Desktop / Cursor / Claude Code)
    │ stdio (JSON-RPC, MCP)
    ▼
-AltiumMcp.Server.exe          ← out-of-process .NET 8 console, 22 tools
+AltiumMcp.Server.exe          ← out-of-process .NET 8 console, 26 tools
    │ HTTP JSON-RPC on 127.0.0.1:47120   (discovery: %LOCALAPPDATA%\AltiumMcp\bridge.json)
    ▼
 AltiumExtensionMCP.dll        ← .NET 8 Altium extension loaded inside X2.EXE

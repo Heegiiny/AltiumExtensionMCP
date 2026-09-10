@@ -117,3 +117,17 @@ Format: context → options → decision → consequences. Newest last.
   production project revisions; write tools (phase 3+) still need dry-run/preview/undo.
 - Consequences: deferred-for-machine-reasons items are back on the roadmap; the "user is working on
   this machine" caveats in older notes are historical.
+
+## D13. Working MCP first: defer expensive features, allow editor-state tools (2026-09-10)
+
+- Context: session 5 started implementing sheet/board rendering (native PCB `RenderToDC` + an own GDI
+  painter for schematics). The user redirected: aim at a working, useful MCP; when a requirement is
+  expensive to implement, postpone it instead of sinking the session into it. The immediate need —
+  "show the engineer what the agent means" — is met by selecting objects in the open editor.
+- Decision: (a) rendering is deferred with its research recorded (`MCP_TOOLS.md` Planned,
+  `ALTIUM_API_NOTES.md`); (b) tools that change **editor state only** (open tab, selection, zoom, DRC
+  markers/report) are acceptable in phase 1 and are flagged `ReadOnly=false, Destructive=false` in MCP
+  annotations and documented as such. Design data (schematic/PCB objects, files) is still never
+  modified before phase 3, and none of these tools marks a document dirty.
+- Consequences: `sch.select`, `pcb.select`, `pcb.runDrc`, `pcb.listViolations` shipped in one session;
+  the roadmap keeps rendering under "Deferred" rather than "Next".

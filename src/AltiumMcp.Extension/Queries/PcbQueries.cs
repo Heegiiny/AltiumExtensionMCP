@@ -15,7 +15,7 @@ namespace AltiumMcp.Extension.Queries;
 /// PCB board reads through the PCB editor object model (IPCB_Board + iterators).
 /// Coordinates are converted from internal units (1/10000 mil) to mils relative to the board origin.
 /// </summary>
-internal sealed class PcbQueries
+internal sealed partial class PcbQueries
 {
     private const int MaxLimit = 2000;
 
@@ -755,6 +755,10 @@ internal sealed class PcbQueries
         public double Y(int coord) => Math.Round((coord - OriginY) / 10000.0, 3);
         public double[] Rect(CoordRect r) => new[] { X(r.X1), Y(r.Y1), X(r.X2), Y(r.Y2) };
 
+        /// <summary>Inverse of <see cref="X"/>/<see cref="Y"/>: mils relative to origin -> absolute internal units.</summary>
+        public int ToAbsX(double mils) => (int)Math.Round(mils * 10000.0) + OriginX;
+        public int ToAbsY(double mils) => (int)Math.Round(mils * 10000.0) + OriginY;
+
         public string LayerName(TV6_Layer layer)
         {
             if (_layerNames.TryGetValue(layer, out string? name))
@@ -845,6 +849,8 @@ internal sealed class PcbQueries
                 }
             }
         }
+
+        public static IPCB_ServerInterface Server => PcbServer;
 
         private static IPCB_ServerInterface PcbServer
         {

@@ -42,9 +42,16 @@ believes about the design. Nothing in this skill modifies the design.
 If no `.PrjPcb` is open, stop and ask the user to open one; the project tools need it.
 
 You do not need to open sheets or boards to read them: `sch.*`/`pcb.*` load closed documents hidden.
-Use `altium_open_document` only when you want the engineer to *see* something (or before a screenshot);
-it changes editor state (tab focus), never design data. Pass `documentPath` explicitly to every
-sheet/board tool instead of relying on "the active document".
+Use `altium_open_document` only when you want the engineer to *see* something; it changes editor state
+(tab focus), never design data. Pass `documentPath` explicitly to every sheet/board tool instead of
+relying on "the active document".
+
+To *point at* things for the engineer use `altium_select_on_sheet` / `altium_select_on_pcb`: they open
+the document, select the named components / nets / pads / objects and zoom to them (editor state only;
+nothing is modified, the document is not marked dirty). Use them when you report a finding tied to
+specific objects ("U2 pin 7 is unconnected", "GND has 3 unrouted connections"), and check `notFound` in
+the result — an unmatched designator means you named something that is not on that document. Call with
+no targets to clear the selection when you are done.
 
 ## 3. Structure before detail
 
@@ -111,8 +118,13 @@ graphical objects that the compiled model does not carry (wires, net labels, por
   not reported yet), `objectCounts`, `classes`, `violationCount`. The `.PcbDoc` path is
   `primaryImplementationDocument` from the structure call. Expect ~1 s per PCB call on a board that is
   not open in the editor (first call ~6 s); do not treat that as a hang.
-- `violationCount` and `Violation` primitives are **0 until a DRC has been run in Altium**. Zero
-  violations therefore means "no DRC results present", not "the board passes DRC" - say so.
+- `violationCount` and `Violation` primitives are **0 until a DRC has been run**. Zero without a run means
+  "no DRC results present", not "the board passes DRC". To know for sure, run `altium_run_drc` (seconds to
+  minutes; refreshes the violation markers and writes a report — editor state, no design change) and read
+  `violationCount`, `byKind`, `byRule` and the `violations[]` list (rule, description, layer, bounds,
+  offending primitives, net). `altium_list_drc_violations` reads existing markers without re-running.
+  Point the engineer at a violation with `altium_select_on_pcb` (the primitives are named in
+  `primitive1`/`primitive2`; select the component or net they belong to).
 - Placement: `altium_list_pcb_components` (filter by designator/footprint, `layer="Bottom"` for
   bottom-side parts); `altium_get_pcb_component` for pads with nets and geometry. `sourceUniqueId`
   equals the compiled component `id` - use it, not the designator, to join schematic and PCB data
@@ -145,9 +157,11 @@ Do not declare a project fully analysed if any of these hold:
 
 - the project was not compiled (`isCompiled=false`) or you did not read `violations`;
 - you paged through fewer items than `total` for a list you are drawing conclusions from;
-- you are making a DRC claim while `violationCount` is 0 (no DRC run) - only Altium's DRC can clear a board;
+- you are making a DRC claim without having run `altium_run_drc` (or read a fresh
+  `altium_list_drc_violations`) - only Altium's DRC can clear a board;
 - the question needs a visual judgement (silkscreen legibility, placement aesthetics, routing style) -
-  no rendering tool exists yet; say that you reasoned from geometry only;
+  no rendering tool exists; select the objects for the engineer with `altium_select_on_*` and say that
+  you reasoned from geometry only;
 - the question touches library health, variants or Workspace/server state (not available yet);
 - any tool call returned an error you did not resolve.
 

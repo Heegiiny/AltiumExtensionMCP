@@ -1,6 +1,6 @@
 # Session handoff
 
-Last updated: 2026-09-10 (session 4, Cursor, on the dedicated workstation). Next agent: read this file,
+Last updated: 2026-09-10 (session 5, Cursor, on the dedicated workstation). Next agent: read this file,
 then `ENVIRONMENT.md`, `README.md`, `ARCHITECTURE.md`, `MCP_TOOLS.md`, `ALTIUM_API_NOTES.md`,
 `ROADMAP.md`. No chat history is required; the repository is the project memory.
 
@@ -9,11 +9,12 @@ then `ENVIRONMENT.md`, `README.md`, `ARCHITECTURE.md`, `MCP_TOOLS.md`, `ALTIUM_A
 The project runs on the dedicated agent machine `SOLDERING01` (Altium Designer **26.9.1.10**, single
 install; all facts in `ENVIRONMENT.md`). Build, 27/27 unit tests, deploy, extension registration, cold
 start with the bridge and the full redeploy loop (`tools\Redeploy-Extension.ps1`, ~40 s) all work. All
-**22 bridge methods / MCP tools are verified live** on the *Bluetooth Sentinel* test copy, including the
-schematic (`sch.*`) and PCB (`pcb.*`) families that were unverified after session 2. Live API
-discrepancies found in sessions 3–4 are fixed and recorded in `ALTIUM_API_NOTES.md` ("Live findings").
-Environment-specific paths are centralised (DECISIONS D11); the machine is dedicated, so restarting
-Altium and UI automation are allowed (D12). Phase 1 continues with graphical representation and DRC.
+**26 bridge methods / MCP tools are verified live** on the *Bluetooth Sentinel* test copy: project,
+schematic (`sch.*`), PCB (`pcb.*`), batch DRC as data (`pcb.runDrc`, `pcb.listViolations`) and editor
+selection (`sch.select`, `pcb.select`). Live API discrepancies are fixed and recorded in
+`ALTIUM_API_NOTES.md` ("Live findings"). Environment-specific paths are centralised (D11); the machine is
+dedicated (D12); rendering is **deferred** in favour of a working MCP (D13). Next: ERC run, then
+ROADMAP items 2–5.
 
 ## Sessions so far
 
@@ -29,6 +30,12 @@ Altium and UI automation are allowed (D12). Phase 1 continues with graphical rep
    compiled id, returns `physicalDesignator` + `compiledIds` (multi-channel aware), `OBJECT_NOT_FOUND`
    lists `designatorsOnSheet`; `ConnectivelyInvalid` dropped from `pcb.listNets` (always true live);
    tool descriptions, `MCP_TOOLS.md`, `ROADMAP.md`, skill updated.
+5. 2026-09-10 (this session): started sheet/board rendering (research done: PCB `IPCB_GraphicalView.RenderToDC`,
+   SCH has no image API), then **redirected by the user** to a working MCP with simple selection; rendering
+   code removed, research kept (D13). Shipped and verified live: `pcb.listViolations`, `pcb.runDrc`
+   (batch DRC → report + structured violations; 1.6 s, 0 violations on the clean test board),
+   `pcb.select` / `sch.select` (components / nets / pads / UniqueIds → select + zoom in the open editor;
+   `EditorCommands` runs Altium processes via `IProcessLauncher.SendMessage`). 26 tools.
 
 ## What works right now
 
@@ -46,7 +53,12 @@ Altium and UI automation are allowed (D12). Phase 1 continues with graphical rep
 
 1. Auto-load on a plain Altium restart still does not happen; `-R` at cold start (scripts) is the path.
    `ProcessExit` does not fire in X2.EXE → stale `bridge.json` is handled client-side (pid check).
-2. `violationCount` / `Violation` primitives are 0 until a DRC is run in Altium — no DRC tool yet.
+2. `violationCount` / `Violation` primitives are 0 until a DRC is run — `pcb.runDrc` does that now. The
+   per-violation mapping (`ToViolation`: rule, description, primitives, net, bounds) has **not** been seen
+   live yet because the test board is clean; first board with real violations should be checked (a quick
+   way: copy the test project, move a track onto a pad, run `pcb.runDrc`).
+2b. Selection was verified through the API results (`selectedCount`, `zoomed=true`); the agent session had
+   no desktop access for a screenshot, so a human should glance once at Altium after `pcb.select`.
 3. Layer stack: no dielectric layers (no .NET getters on `IPCB_DielectricObject`); `V6_LayerID()` used.
 4. `sch.listObjects` returns items in iteration order (containers first); a mixed-type page can be one type.
 5. `DM_InstalledLibraryCount()` = 0; unsaved workspace path is a bare name; flattened nets report the top
@@ -61,15 +73,13 @@ Altium and UI automation are allowed (D12). Phase 1 continues with graphical rep
 
 ## Next concrete step
 
-1. **Graphical representation** (ROADMAP phase 1, item 1): research in `<DisasmRoot>` how the SCH/PCB
-   document views export images (`Altium.SCH.DocumentViews`, `Altium.PCB.DocumentViews`,
-   `IServerDocumentView`, print/export commands such as `Sch:PrintPreview`/`Pcb:ExportToImage` in
-   `<AltiumProgramsHome>\System\*.rcs`), then implement `sch.render` / `pcb.render` → PNG file path +
-   bounds, and an `altium_render_*` tool returning the image. Fallback: own SVG/PNG painter over
-   `sch.listObjects` / `pcb.listPrimitives` geometry (all needed data is already exposed).
-2. `pcb.runDrc` (batch DRC) so `Violation` primitives and `violationCount` become meaningful; ERC run.
-3. Then ROADMAP items 3–5 (dielectrics, analysis helpers, libraries/managed components) and the phase 2
-   read-only Workspace discovery (`WORKSPACE_API_NOTES.md` questions 1–5).
+1. **ERC run on demand** (`project.compile` / `DM_CompileEx`) returning the same `violations` shape as
+   `project.getStructure`, so verification is ERC + DRC in two calls. Keep it cheap; `compileIfNeeded`
+   already exists on the project tools — this is about an explicit, reportable run.
+2. Exercise `pcb.runDrc` on a board with violations (see caveat 2) and fix the mapping if needed.
+3. Then ROADMAP items 2–5 (dielectrics, analysis helpers, libraries/managed components) and the phase 2
+   read-only Workspace discovery (`WORKSPACE_API_NOTES.md` questions 1–5). Rendering stays deferred
+   (D13) unless the user asks for it; the research is in `MCP_TOOLS.md` → Planned.
 
 ## How to smoke-test in 60 seconds
 
@@ -86,6 +96,9 @@ Invoke-Bridge sch.getComponent  @{ documentPath = "$prj\Microcontroller_STM32F10
 Invoke-Bridge pcb.getBoard      @{ documentPath = "$prj\Bluetooth_Sentinel.PcbDoc" }
 Invoke-Bridge pcb.listComponents @{ documentPath = "$prj\Bluetooth_Sentinel.PcbDoc"; filter = 'U*' }
 Invoke-Bridge pcb.getNet        @{ documentPath = "$prj\Bluetooth_Sentinel.PcbDoc"; net = 'GND' }
+Invoke-Bridge pcb.runDrc        @{ documentPath = "$prj\Bluetooth_Sentinel.PcbDoc"; limit = 5 }        # ran=true, 0 violations, reportPath
+Invoke-Bridge pcb.select        @{ documentPath = "$prj\Bluetooth_Sentinel.PcbDoc"; components = @('U1','C1') }   # opens board, 4 selected, zoomed
+Invoke-Bridge sch.select        @{ documentPath = "$prj\Microcontroller_STM32F101.SchDoc"; components = @('U2A'); nets = @('GND') }
 ```
 Expected: 4 ICs (U1–U4), board 3149.6 × 2165.4 mils, 4 copper layers, 57 nets, 38 rules, GND 54 pads /
 131 vias, `unroutedConnectionCount` absent everywhere (fully routed).

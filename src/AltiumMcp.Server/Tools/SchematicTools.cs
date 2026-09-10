@@ -51,4 +51,18 @@ public sealed class SchematicTools
         CancellationToken ct = default) =>
         ToolResults.Run(() => _bridge.CallAsync(BridgeMethods.SchGetComponent,
             new GetSchComponentParams { DocumentPath = documentPath, Component = component, LoadIfClosed = loadIfClosed }, ct));
+
+    [McpServerTool(Name = "altium_select_on_sheet", ReadOnly = false, Idempotent = true, Destructive = false, OpenWorld = false, Title = "Select objects in the schematic editor")]
+    [Description("Highlights objects on a schematic sheet so the engineer sees what you refer to: components by designator ('U2' = all parts, 'U2A' = one part, physical 'U2_1', or sheet UniqueId), nets by name (selects the net labels, ports, power objects, sheet entries and cross-sheet connectors carrying that name — wires are not net-aware on the sheet), and any objects by UniqueId from altium_list_sheet_objects. Opens/focuses the sheet, clears the previous selection (unless clearFirst=false) and zooms to the selection. Returns matched/unmatched targets, selected count and bounds in mils. Editor state only — design data is not modified. Call with no targets to clear the selection.")]
+    public Task<CallToolResult> Select(
+        [Description("Full path of the .SchDoc. Omit for the active editor sheet.")] string? documentPath = null,
+        [Description("Component designators, e.g. [\"U2\",\"R7\"] (or 'U2A', physical designator, UniqueId).")] List<string>? components = null,
+        [Description("Net names, e.g. [\"SPI_CLK\",\"GND\"].")] List<string>? nets = null,
+        [Description("Object UniqueIds from altium_list_sheet_objects.")] List<string>? objects = null,
+        [Description("Deselect everything first (default true).")] bool clearFirst = true,
+        [Description("Zoom the view to the selection (default true).")] bool zoomTo = true,
+        [Description("Open/focus the sheet in the editor (default true).")] bool focus = true,
+        CancellationToken ct = default) =>
+        ToolResults.Run(() => _bridge.CallAsync(BridgeMethods.SchSelect,
+            new SelectParams { DocumentPath = documentPath, Components = components, Nets = nets, Objects = objects, ClearFirst = clearFirst, ZoomTo = zoomTo, Focus = focus }, ct));
 }
