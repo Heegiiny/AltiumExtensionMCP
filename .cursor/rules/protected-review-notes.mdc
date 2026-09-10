@@ -1,0 +1,12 @@
+---
+description: Protect user-approved MCP review notes from implementation-agent edits
+alwaysApply: true
+---
+
+# Protected review notes
+
+- Treat `review-notes/**` as read-only user-approved requirements.
+- Read the relevant note before implementing MCP optimization, exception handling, selection, or Cross Probe changes.
+- Never create, modify, rename, move, or delete anything under `review-notes/**` unless the user explicitly requests that exact notes update.
+- Implement code and normal documentation changes outside `review-notes/**`.
+- If implementation reveals a conflict, report it to the user; do not silently rewrite the protected note.
