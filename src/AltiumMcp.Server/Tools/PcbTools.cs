@@ -37,19 +37,23 @@ public sealed class PcbTools
         [Description("Pagination offset (default 0).")] int offset = 0,
         [Description("Max items (default 100, max 2000).")] int limit = 100,
         [Description("Load the board hidden if it is not open (default true).")] bool loadIfClosed = true,
+        [Description("Optional field projection on the items (camelCase names, e.g. [\"designator\",\"footprint\",\"layer\",\"x\",\"y\"]); saves tokens.")] string[]? fields = null,
         CancellationToken ct = default) =>
         ToolResults.Run(() => _bridge.CallAsync(BridgeMethods.PcbListComponents,
-            new ListPcbComponentsParams { DocumentPath = documentPath, Filter = filter, Layer = layer, Offset = offset, Limit = limit, LoadIfClosed = loadIfClosed }, ct));
+            new ListPcbComponentsParams { DocumentPath = documentPath, Filter = filter, Layer = layer, Offset = offset, Limit = limit, LoadIfClosed = loadIfClosed }, ct), fields);
 
     [McpServerTool(Name = "altium_get_pcb_component", ReadOnly = true, Idempotent = true, OpenWorld = false, Title = "Get PCB component details")]
-    [Description("Returns one placed footprint in detail: summary (position, rotation, layer, bounds), footprint description, source libraries and design item id, default 3D model, managed-content GUIDs, swap flags, and every pad with name, net, x/y (mils), rotation, layer, SMD flag, shape, size, hole and plating, plus counts of other primitives in the footprint (tracks, regions, component bodies...). Identify by designator or PCB UniqueId (also accepts the schematic sourceUniqueId).")]
+    [Description("Returns one placed footprint: summary (designator, ids, footprint, comment, layer, position, rotation) and (detail=connectivity, default) pads with name and net. detail=full adds bounds, footprint description, source libraries and design item id, default 3D model, managed-content GUIDs, swap flags, per-pad geometry (x/y, layer, shape, size, hole, plating) and counts of other primitives in the footprint. Identify by designator, PCB UniqueId or schematic sourceUniqueId. documentPath may be omitted: the focused project's PCB is used.")]
     public Task<CallToolResult> GetComponent(
         [Description("Designator (e.g. 'U1'), PCB UniqueId or schematic source UniqueId.")] string component,
-        [Description("Full path of the .PcbDoc. Omit for the active PCB document.")] string? documentPath = null,
+        [Description("Full path (or bare file name) of the .PcbDoc. Omit for the focused project's board.")] string? documentPath = null,
+        [Description("'summary' | 'connectivity' (default) | 'full'.")] string? detail = null,
+        [Description("Cross probe override: true = open the board, select and zoom to the footprint even if 'Follow MCP queries' is off; false = never; omit = follow the setting.")] bool? crossProbe = null,
         [Description("Load the board hidden if it is not open (default true).")] bool loadIfClosed = true,
+        [Description("Optional field projection (camelCase names).")] string[]? fields = null,
         CancellationToken ct = default) =>
         ToolResults.Run(() => _bridge.CallAsync(BridgeMethods.PcbGetComponent,
-            new GetPcbComponentParams { DocumentPath = documentPath, Component = component, LoadIfClosed = loadIfClosed }, ct));
+            new GetPcbComponentParams { DocumentPath = documentPath, Component = component, Detail = detail, CrossProbe = crossProbe, LoadIfClosed = loadIfClosed }, ct), fields);
 
     [McpServerTool(Name = "altium_list_pcb_nets", ReadOnly = true, Idempotent = true, OpenWorld = false, Title = "List PCB nets")]
     [Description("Lists nets on the board sorted by name, paginated: pin count, via count, routed length (mils), differential-pair membership and unroutedConnectionCount (remaining ratsnest lines; absent = fully routed). Filter by substring or wildcard ('VCC*'). Compare with altium_list_nets (schematic/compiled) to find nets missing on the PCB.")]
@@ -64,14 +68,17 @@ public sealed class PcbTools
             new ListPcbNetsParams { DocumentPath = documentPath, Filter = filter, Offset = offset, Limit = limit, LoadIfClosed = loadIfClosed }, ct));
 
     [McpServerTool(Name = "altium_get_pcb_net", ReadOnly = true, Idempotent = true, OpenWorld = false, Title = "Get PCB net details")]
-    [Description("Returns one net with all its pads (pinDescriptor 'U1-3', position, layer, SMD/hole), track/arc/polygon/region counts, layers used for routing and total track length in mils computed from geometry. Use for connectivity and routing analysis of a specific net.")]
+    [Description("Returns one board net: pads (pinDescriptor 'U1-3' + net; detail=full adds position, layer, SMD/hole), track/arc/polygon/region counts, layers used for routing and total track length in mils computed from geometry. Use for connectivity and routing analysis of a specific net on the PCB; for the schematic-side net across sheets use altium_get_net.")]
     public Task<CallToolResult> GetNet(
         [Description("Exact net name (from altium_list_pcb_nets).")] string net,
-        [Description("Full path of the .PcbDoc. Omit for the active PCB document.")] string? documentPath = null,
+        [Description("Full path (or bare file name) of the .PcbDoc. Omit for the focused project's board.")] string? documentPath = null,
+        [Description("'summary' | 'connectivity' (default) | 'full'.")] string? detail = null,
+        [Description("Cross probe override: true = open the board and select the net's copper even if 'Follow MCP queries' is off; false = never; omit = follow the setting.")] bool? crossProbe = null,
         [Description("Load the board hidden if it is not open (default true).")] bool loadIfClosed = true,
+        [Description("Optional field projection (camelCase names).")] string[]? fields = null,
         CancellationToken ct = default) =>
         ToolResults.Run(() => _bridge.CallAsync(BridgeMethods.PcbGetNet,
-            new GetPcbNetParams { DocumentPath = documentPath, Net = net, LoadIfClosed = loadIfClosed }, ct));
+            new GetPcbNetParams { DocumentPath = documentPath, Net = net, Detail = detail, CrossProbe = crossProbe, LoadIfClosed = loadIfClosed }, ct), fields);
 
     [McpServerTool(Name = "altium_list_pcb_rules", ReadOnly = true, Idempotent = true, OpenWorld = false, Title = "List PCB design rules")]
     [Description("Lists design rules sorted by kind then priority: name, kind (Clearance, MaxMinWidth, RoutingViaStyle, SolderMaskExpansion, ComponentClearance, ...), enabled flag, priority, scope expressions (e.g. 'All', 'InNetClass(\\'Power\\')'), the constraint summary string as shown in the rule editor and comment. Filter by kind or name (substring/wildcard).")]
@@ -95,9 +102,10 @@ public sealed class PcbTools
         [Description("Pagination offset (default 0).")] int offset = 0,
         [Description("Max items (default 200, max 2000).")] int limit = 200,
         [Description("Load the board hidden if it is not open (default true).")] bool loadIfClosed = true,
+        [Description("Optional field projection on the items (camelCase names, e.g. [\"type\",\"layer\",\"net\",\"geometry\"]); saves tokens.")] string[]? fields = null,
         CancellationToken ct = default) =>
         ToolResults.Run(() => _bridge.CallAsync(BridgeMethods.PcbListPrimitives,
-            new ListPcbPrimitivesParams { DocumentPath = documentPath, Types = types, Layer = layer, Net = net, FreeOnly = freeOnly, Offset = offset, Limit = limit, LoadIfClosed = loadIfClosed }, ct));
+            new ListPcbPrimitivesParams { DocumentPath = documentPath, Types = types, Layer = layer, Net = net, FreeOnly = freeOnly, Offset = offset, Limit = limit, LoadIfClosed = loadIfClosed }, ct), fields);
 
     [McpServerTool(Name = "altium_list_drc_violations", ReadOnly = true, Idempotent = true, OpenWorld = false, Title = "List DRC violations")]
     [Description("Reads the design-rule violations currently stored on the board (from the last batch or online DRC) without running a check: total count, counts by rule and by kind, and a paginated list with rule name, kind, Altium's description, layer, marker bounds (mils), the two offending primitives and the net. Zero violations may mean 'clean' or 'DRC not run yet' — use altium_run_drc to be sure.")]

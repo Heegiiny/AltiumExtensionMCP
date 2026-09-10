@@ -67,6 +67,8 @@ public sealed class BridgeRouter
                 sw.ElapsedMilliseconds);
         }
 
+        // Short correlation id: appears in the error response and in the bridge log line, so a user can quote it.
+        string correlationId = Guid.NewGuid().ToString("N").Substring(0, 8);
         try
         {
             object? result = _dispatcher.Invoke(() => handler(request.Params), DefaultTimeout);
@@ -75,22 +77,37 @@ public sealed class BridgeRouter
         }
         catch (BridgeException ex)
         {
-            BridgeLog.Warn($"{request.Method} -> {ex.Code}: {ex.Message}");
-            return BridgeResponse.Failure(request.Id, ex.ToError(), sw.ElapsedMilliseconds);
+            BridgeLog.Warn($"[{correlationId}] {request.Method} -> {ex.Code}: {ex.Message}");
+            BridgeError error = ex.ToError();
+            error.CorrelationId = correlationId;
+            return BridgeResponse.Failure(request.Id, error, sw.ElapsedMilliseconds);
         }
         catch (Exception ex)
         {
-            BridgeLog.Error($"{request.Method} failed", ex);
+            // Anything else is a defect or an Altium API failure. Never let it escape to the host (no modal dialogs,
+            // no crash of the HTTP listener); log in full, return a structured error with a correlation id.
+            BridgeLog.Error($"[{correlationId}] {request.Method} failed", ex);
+            bool isAltium = ex is System.Runtime.InteropServices.COMException
+                            || ex is System.Runtime.InteropServices.SEHException
+                            || ex is System.Runtime.InteropServices.InvalidComObjectException
+                            || ex is InvalidCastException;
             var details = new Dictionary<string, string>
             {
                 ["exception"] = ex.GetType().FullName ?? ex.GetType().Name,
+                ["hint"] = isAltium
+                    ? "An Altium API call failed. Check the target document is loadable and Altium is idle (no modal dialog), then retry. Quote the correlationId when reporting."
+                    : "Unexpected bridge failure; see the bridge log for the stack trace (correlationId).",
             };
             if (ex.StackTrace is { } st)
             {
-                details["stackTrace"] = st.Length > 2000 ? st.Substring(0, 2000) : st;
+                details["stackTrace"] = st.Length > 1200 ? st.Substring(0, 1200) : st;
             }
 
-            return BridgeResponse.Failure(request.Id, new BridgeError(BridgeErrorCodes.Internal, ex.Message, details), sw.ElapsedMilliseconds);
+            var error = new BridgeError(isAltium ? BridgeErrorCodes.AltiumApiError : BridgeErrorCodes.Internal, ex.Message, details)
+            {
+                CorrelationId = correlationId,
+            };
+            return BridgeResponse.Failure(request.Id, error, sw.ElapsedMilliseconds);
         }
     }
 }

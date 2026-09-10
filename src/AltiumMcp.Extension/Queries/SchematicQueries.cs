@@ -174,11 +174,23 @@ internal sealed partial class SchematicQueries
 
     public SchComponentDetail GetComponent(GetSchComponentParams? p)
     {
-        if (p == null || string.IsNullOrWhiteSpace(p.Component))
+        if (p == null || InputNormalizer.Optional(p.Component) == null)
         {
             throw new BridgeException(BridgeErrorCodes.InvalidParams, "'component' (designator or sheet UniqueId) is required.");
         }
 
+        p.Component = InputNormalizer.Optional(p.Component)!;
+        string level;
+        try
+        {
+            level = DetailLevel.Normalize(p.Detail);
+        }
+        catch (ArgumentException ex)
+        {
+            throw new BridgeException(BridgeErrorCodes.InvalidParams, ex.Message);
+        }
+
+        bool full = level == DetailLevel.Full;
         (ISch_Document doc, string path, _) = ResolveSheet(p.DocumentPath, p.LoadIfClosed);
 
         // Pass 1: everything on the sheet (needed for fallbacks and for a useful error message).
@@ -268,21 +280,34 @@ internal sealed partial class SchematicQueries
             Comment = comment == null ? null : NullIfEmpty(Safe(() => comment.GetState_Text())),
             Description = NullIfEmpty(Safe(() => found.GetState_ComponentDescription())),
             LibReference = NullIfEmpty(Safe(() => found.GetState_LibReference())),
-            SourceLibraryName = NullIfEmpty(Safe(() => found.GetState_SourceLibraryName())),
-            DesignItemId = NullIfEmpty(Safe(() => found.GetState_DesignItemId())),
-            ComponentKind = EnumName(Safe(() => found.GetState_ComponentKind().ToString())),
+            SourceLibraryName = full ? NullIfEmpty(Safe(() => found.GetState_SourceLibraryName())) : null,
+            DesignItemId = full ? NullIfEmpty(Safe(() => found.GetState_DesignItemId())) : null,
+            ComponentKind = full ? EnumName(Safe(() => found.GetState_ComponentKind().ToString())) : null,
             X = Mils(loc?.X ?? 0),
             Y = Mils(loc?.Y ?? 0),
             Rotation = Degrees(Safe(() => found.GetState_Orientation())),
             IsMirrored = Safe(() => found.GetState_IsMirrored()),
-            Bounds = BoundsOf(found),
+            Bounds = full ? BoundsOf(found) : null,
             PartCount = Safe(() => found.GetState_PartCountNoPart0()),
             CurrentPartId = Safe(() => found.GetState_CurrentPartID()),
-            DisplayMode = Safe(() => found.GetState_DisplayMode()),
+            DisplayMode = full ? Safe(() => found.GetState_DisplayMode()) : 0,
         };
 
-        string? vault = NullIfEmpty(Safe(() => found.GetState_VaultGUID()));
-        string? item = NullIfEmpty(Safe(() => found.GetState_ItemGUID()));
+        if (CrossProbeService.ShouldProbe(p.CrossProbe))
+        {
+            string probePath = path;
+            string probeId = foundUid;
+            detail.CrossProbe = CrossProbeService.Request($"sheet component {detail.Designator} on {Path.GetFileName(path)}",
+                () => Select(new SelectParams { DocumentPath = probePath, Objects = new List<string> { probeId }, ClearFirst = true, ZoomTo = true, Focus = true }));
+        }
+
+        if (level == DetailLevel.Summary)
+        {
+            return detail;
+        }
+
+        string? vault = full ? NullIfEmpty(Safe(() => found.GetState_VaultGUID())) : null;
+        string? item = full ? NullIfEmpty(Safe(() => found.GetState_ItemGUID())) : null;
         if (vault != null || item != null)
         {
             detail.Managed = new ManagedLink
@@ -295,6 +320,44 @@ internal sealed partial class SchematicQueries
             };
         }
 
+        detail.Pins = new List<SchPinInfo>();
+        foreach (ISch_BasicContainer o in Iterate(found, new TObjectSet(TObjectId.ePin), TIterationDepth.eIterateFirstLevel))
+        {
+            if (o is not ISch_Pin pin || !PinBelongsToActiveMode(pin, found))
+            {
+                continue;
+            }
+
+            var info = new SchPinInfo
+            {
+                Designator = Safe(() => pin.GetState_Designator()) ?? string.Empty,
+                Name = NullIfEmpty(Safe(() => pin.GetState_Name())),
+                Electrical = Electrical(pin),
+                PartId = detail.PartCount > 1 ? Safe(() => pin.GetState_OwnerPartId()) : 0,
+                IsHidden = Safe(() => pin.GetState_IsHidden()),
+                HiddenNetName = NullIfEmpty(Safe(() => pin.GetState_HiddenNetName())),
+            };
+            if (full)
+            {
+                Point? pl = Safe(() => pin.GetState_Location());
+                info.X = Mils(pl?.X ?? 0);
+                info.Y = Mils(pl?.Y ?? 0);
+                info.Rotation = Degrees(Safe(() => pin.GetState_Orientation()));
+                info.LengthMils = Mils(Safe(() => pin.GetState_PinLength()));
+                info.Description = NullIfEmpty(Safe(() => pin.GetState_Description()));
+            }
+
+            detail.Pins.Add(info);
+        }
+
+        detail.Pins.Sort((a, b) => NaturalCompare(a.Designator, b.Designator));
+
+        if (!full)
+        {
+            return detail;
+        }
+
+        detail.Parameters = new Dictionary<string, SchParameterInfo>(StringComparer.OrdinalIgnoreCase);
         foreach (ISch_BasicContainer o in Iterate(found, new TObjectSet(TObjectId.eParameter), TIterationDepth.eIterateFirstLevel))
         {
             if (o is not ISch_Parameter prm)
@@ -317,32 +380,7 @@ internal sealed partial class SchematicQueries
             };
         }
 
-        foreach (ISch_BasicContainer o in Iterate(found, new TObjectSet(TObjectId.ePin), TIterationDepth.eIterateFirstLevel))
-        {
-            if (o is not ISch_Pin pin || !PinBelongsToActiveMode(pin, found))
-            {
-                continue;
-            }
-
-            Point? pl = Safe(() => pin.GetState_Location());
-            detail.Pins.Add(new SchPinInfo
-            {
-                Designator = Safe(() => pin.GetState_Designator()) ?? string.Empty,
-                Name = NullIfEmpty(Safe(() => pin.GetState_Name())),
-                Electrical = Electrical(pin),
-                PartId = Safe(() => pin.GetState_OwnerPartId()),
-                IsHidden = Safe(() => pin.GetState_IsHidden()),
-                HiddenNetName = NullIfEmpty(Safe(() => pin.GetState_HiddenNetName())),
-                X = Mils(pl?.X ?? 0),
-                Y = Mils(pl?.Y ?? 0),
-                Rotation = Degrees(Safe(() => pin.GetState_Orientation())),
-                LengthMils = Mils(Safe(() => pin.GetState_PinLength())),
-                Description = NullIfEmpty(Safe(() => pin.GetState_Description())),
-            });
-        }
-
-        detail.Pins.Sort((a, b) => NaturalCompare(a.Designator, b.Designator));
-
+        detail.Implementations = new List<ImplementationInfo>();
         foreach (ISch_BasicContainer o in Iterate(found, new TObjectSet(TObjectId.eImplementation), TIterationDepth.eIterateAllLevels))
         {
             if (o is not ISch_Implementation impl)
@@ -617,39 +655,15 @@ internal sealed partial class SchematicQueries
     /// <summary>Resolves an ISch_Document by path (open or loaded hidden) or the current schematic editor document.</summary>
     private static (ISch_Document Doc, string Path, bool LoadedOnDemand) ResolveSheet(string? documentPath, bool loadIfClosed)
     {
+        // Path validation / project-context resolution happens before any SCH server call (no modal dialogs).
+        ResolvedDocument target = DocumentResolver.Resolve(documentPath, DocumentResolver.Sch);
+        string full = target.FullPath;
         ISch_ServerInterface sch = SchServer;
-        if (string.IsNullOrWhiteSpace(documentPath))
-        {
-            ISch_Document? current = Safe(() => sch.GetCurrentSchDocument());
-            if (current == null)
-            {
-                throw new BridgeException(BridgeErrorCodes.DocumentNotOpen, "No schematic sheet is active in the editor. Pass documentPath explicitly.",
-                    new Dictionary<string, string> { ["hint"] = "Use project.getStructure to list .SchDoc paths of the project." });
-            }
-
-            return (current, Safe(() => current.GetState_DocumentName()) ?? string.Empty, false);
-        }
-
-        string full = documentPath;
-        try
-        {
-            full = Path.GetFullPath(documentPath);
-        }
-        catch
-        {
-            // keep as given
-        }
 
         ISch_Document? doc = Safe(() => sch.GetSchDocumentByPath(full));
         if (doc != null)
         {
             return (doc, full, false);
-        }
-
-        if (!File.Exists(full))
-        {
-            throw new BridgeException(BridgeErrorCodes.DocumentNotFound, $"Schematic file not found: '{full}'.",
-                new Dictionary<string, string> { ["hint"] = "Use project.getStructure for exact document paths." });
         }
 
         if (!loadIfClosed)
@@ -660,7 +674,8 @@ internal sealed partial class SchematicQueries
         doc = Safe(() => sch.LoadSchDocumentByPath(full));
         if (doc == null)
         {
-            throw new BridgeException(BridgeErrorCodes.Internal, $"Altium could not load the schematic '{full}'.");
+            throw new BridgeException(BridgeErrorCodes.AltiumApiError, $"Altium could not load the schematic '{full}'.",
+                new Dictionary<string, string> { ["hint"] = "The file exists but the SCH editor rejected it (corrupt, locked, or not a schematic)." });
         }
 
         return (doc, full, true);

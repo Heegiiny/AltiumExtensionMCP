@@ -109,8 +109,12 @@ public sealed class GetPcbComponentParams
 {
     public string? DocumentPath { get; set; }
     public bool LoadIfClosed { get; set; } = true;
-    /// <summary>Designator (e.g. "U1") or PCB UniqueId.</summary>
+    /// <summary>Designator (e.g. "U1"), PCB UniqueId, or the source schematic UniqueId (project.* id).</summary>
     public string Component { get; set; } = string.Empty;
+    /// <summary>summary | connectivity (default: placement + pads with nets) | full (libraries, managed links, flags, primitive counts, pad geometry).</summary>
+    public string? Detail { get; set; }
+    /// <summary>Per-call override of the "Follow MCP queries in Altium" setting (select + zoom to the footprint).</summary>
+    public bool? CrossProbe { get; set; }
 }
 
 public sealed class PcbComponentDetail
@@ -128,23 +132,27 @@ public sealed class PcbComponentDetail
     public bool EnablePartSwapping { get; set; }
     public bool DesignatorVisible { get; set; }
     public bool CommentVisible { get; set; }
-    public List<PcbPadInfo> Pads { get; set; } = new();
-    /// <summary>Primitive counts inside the footprint by type (Track, Arc, Region, Fill, Text, ComponentBody ...).</summary>
-    public Dictionary<string, int> PrimitiveCounts { get; set; } = new();
+    /// <summary>Pads with nets (connectivity, full). Geometry per pad only at full.</summary>
+    public List<PcbPadInfo>? Pads { get; set; }
+    /// <summary>Primitive counts inside the footprint by type — full only.</summary>
+    public Dictionary<string, int>? PrimitiveCounts { get; set; }
+    /// <summary>"scheduled" when the call queued a cross probe (select + zoom) to this footprint.</summary>
+    public string? CrossProbe { get; set; }
 }
 
 public sealed class PcbPadInfo
 {
     public string Name { get; set; } = string.Empty;
     public string? Net { get; set; }
-    public double X { get; set; }
-    public double Y { get; set; }
-    public double Rotation { get; set; }
-    public string Layer { get; set; } = string.Empty;
+    /// <summary>Geometry — full detail only (pcb.getComponent); always present for pcb.getNet pads.</summary>
+    public double? X { get; set; }
+    public double? Y { get; set; }
+    public double? Rotation { get; set; }
+    public string? Layer { get; set; }
     public bool IsSurfaceMount { get; set; }
     public string? Shape { get; set; }
-    public double SizeXMils { get; set; }
-    public double SizeYMils { get; set; }
+    public double? SizeXMils { get; set; }
+    public double? SizeYMils { get; set; }
     public double? HoleSizeMils { get; set; }
     public bool Plated { get; set; }
     /// <summary>Designator.Pad, e.g. "U1-3".</summary>
@@ -189,13 +197,20 @@ public sealed class GetPcbNetParams
     public string? DocumentPath { get; set; }
     public bool LoadIfClosed { get; set; } = true;
     public string Net { get; set; } = string.Empty;
+    /// <summary>summary | connectivity (default: pads as "U1-3" + routing stats) | full (pad geometry).</summary>
+    public string? Detail { get; set; }
+    /// <summary>Per-call override of the "Follow MCP queries in Altium" setting (select the net's copper + zoom).</summary>
+    public bool? CrossProbe { get; set; }
 }
 
 public sealed class PcbNetDetail
 {
     public string DocumentPath { get; set; } = string.Empty;
     public PcbNetSummary Summary { get; set; } = new();
-    public List<PcbPadInfo> Pads { get; set; } = new();
+    /// <summary>Pads on the net (connectivity: descriptor + net only; full: geometry too).</summary>
+    public List<PcbPadInfo>? Pads { get; set; }
+    /// <summary>"scheduled" when the call queued a cross probe to this net.</summary>
+    public string? CrossProbe { get; set; }
     public int TrackCount { get; set; }
     public int ArcCount { get; set; }
     public int PolygonCount { get; set; }

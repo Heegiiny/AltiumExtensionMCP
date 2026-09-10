@@ -34,6 +34,15 @@ public sealed class WorkspaceTools
     public Task<CallToolResult> ListOpenDocuments(CancellationToken ct) =>
         ToolResults.Run(() => _bridge.CallAsync(BridgeMethods.WorkspaceListOpenDocuments, null, ct));
 
+    [McpServerTool(Name = "altium_get_selection", ReadOnly = true, Idempotent = true, OpenWorld = false, Title = "Get editor selection")]
+    [Description("Reads what the user has selected in the active Altium editor (or in documentPath): document, editor kind (SCH/PCB), selected components with stable ids (designator, id, sourceUniqueId on PCB, comment, library reference, footprint, pins→nets where known), distinct nets touched, other objects (pads, pins, labels, ports, wires) and a selection revision/timestamp. Use ONLY when the user explicitly refers to their selection ('this one', 'the selected transistor', 'what I highlighted'); never inspect the selection just because something happens to be selected. Then continue with altium_get_component using the returned id/sourceUniqueId/designator.")]
+    public Task<CallToolResult> GetSelection(
+        [Description("Document to read the selection from. Omit for the active editor document.")] string? documentPath = null,
+        [Description("Max non-component objects listed (default 100).")] int limit = 100,
+        CancellationToken ct = default) =>
+        ToolResults.Run(() => _bridge.CallAsync(BridgeMethods.WorkspaceGetSelection,
+            new GetSelectionParams { DocumentPath = documentPath, Limit = limit }, ct));
+
     [McpServerTool(Name = "altium_open_document", ReadOnly = false, Idempotent = true, Destructive = false, OpenWorld = false, Title = "Open document in editor")]
     [Description("Opens a schematic sheet, PCB or other document in its Altium editor (or brings an already open one forward). Changes editor state only — never modifies design data. Use it so that sch.*/pcb.* tools can default to the active document and before capturing images. Returns the document ref plus wasAlreadyOpen/isOpenInEditor/isFocused.")]
     public Task<CallToolResult> OpenDocument(

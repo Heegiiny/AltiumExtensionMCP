@@ -138,11 +138,12 @@ internal sealed partial class PcbQueries
 
     public PcbComponentDetail GetComponent(GetPcbComponentParams? p)
     {
-        if (p == null || string.IsNullOrWhiteSpace(p.Component))
+        if (p == null || InputNormalizer.Optional(p.Component) == null)
         {
             throw new BridgeException(BridgeErrorCodes.InvalidParams, "'component' (designator or PCB UniqueId) is required.");
         }
 
+        p.Component = InputNormalizer.Optional(p.Component)!;
         var ctx = BoardContext.Resolve(p.DocumentPath, p.LoadIfClosed);
         IPCB_Component? found = Safe(() => ctx.Board.GetPcbComponentByRefDes(p.Component));
         if (found == null)
@@ -163,40 +164,68 @@ internal sealed partial class PcbQueries
                 new Dictionary<string, string> { ["hint"] = "Use pcb.listComponents to see designators on this board." });
         }
 
-        var d = new PcbComponentDetail
+        string level = ParseDetail(p.Detail);
+        bool full = level == DetailLevel.Full;
+        PcbComponentSummary summary = ToSummary(ctx, found);
+        if (!full)
         {
-            DocumentPath = ctx.Path,
-            Summary = ToSummary(ctx, found),
-            FootprintDescription = NullIfEmpty(Safe(() => found.GetState_FootprintDescription())),
-            SourceFootprintLibrary = NullIfEmpty(Safe(() => found.GetState_SourceFootprintLibrary())),
-            SourceComponentLibrary = NullIfEmpty(Safe(() => found.GetState_SourceComponentLibrary())),
-            SourceDesignItemId = NullIfEmpty(Safe(() => found.GetState_SourceCompDesignItemID())),
-            Default3DModel = NullIfEmpty(Safe(() => found.GetState_DefaultPCB3DModel())),
-            IsBga = Safe(() => found.GetState_IsBGA()),
-            EnablePinSwapping = Safe(() => found.GetState_EnablePinSwapping()),
-            EnablePartSwapping = Safe(() => found.GetState_EnablePartSwapping()),
-            DesignatorVisible = Safe(() => found.GetState_NameOn()),
-            CommentVisible = Safe(() => found.GetState_CommentOn()),
-        };
-
-        string? vault = NullIfEmpty(Safe(() => found.GetState_VaultGUID()));
-        string? item = NullIfEmpty(Safe(() => found.GetState_ItemGUID()));
-        if (vault != null || item != null)
-        {
-            d.Managed = new ManagedLink { VaultGuid = vault, ItemGuid = item, RevisionGuid = NullIfEmpty(Safe(() => found.GetState_ItemRevisionGUID())) };
+            // Compact by default: no bounding box, no source description/hierarchy path (see project.getComponent).
+            summary.Bounds = null;
+            summary.SourceDescription = null;
+            summary.SourceHierarchicalPath = null;
         }
 
-        foreach (IPCB_Primitive child in ctx.IterateGroup(found, null))
+        var d = new PcbComponentDetail { DocumentPath = ctx.Path, Summary = summary };
+        if (CrossProbeService.ShouldProbe(p.CrossProbe))
+        {
+            string probePath = ctx.Path;
+            string probeDes = summary.Designator;
+            d.CrossProbe = CrossProbeService.Request($"PCB component {probeDes}",
+                () => Select(new SelectParams { DocumentPath = probePath, Components = new List<string> { probeDes }, ClearFirst = true, ZoomTo = true, Focus = true }));
+        }
+
+        if (level == DetailLevel.Summary)
+        {
+            return d;
+        }
+
+        d.Pads = new List<PcbPadInfo>();
+        if (full)
+        {
+            d.FootprintDescription = NullIfEmpty(Safe(() => found.GetState_FootprintDescription()));
+            d.SourceFootprintLibrary = NullIfEmpty(Safe(() => found.GetState_SourceFootprintLibrary()));
+            d.SourceComponentLibrary = NullIfEmpty(Safe(() => found.GetState_SourceComponentLibrary()));
+            d.SourceDesignItemId = NullIfEmpty(Safe(() => found.GetState_SourceCompDesignItemID()));
+            d.Default3DModel = NullIfEmpty(Safe(() => found.GetState_DefaultPCB3DModel()));
+            d.IsBga = Safe(() => found.GetState_IsBGA());
+            d.EnablePinSwapping = Safe(() => found.GetState_EnablePinSwapping());
+            d.EnablePartSwapping = Safe(() => found.GetState_EnablePartSwapping());
+            d.DesignatorVisible = Safe(() => found.GetState_NameOn());
+            d.CommentVisible = Safe(() => found.GetState_CommentOn());
+            d.PrimitiveCounts = new Dictionary<string, int>();
+
+            string? vault = NullIfEmpty(Safe(() => found.GetState_VaultGUID()));
+            string? item = NullIfEmpty(Safe(() => found.GetState_ItemGUID()));
+            if (vault != null || item != null)
+            {
+                d.Managed = new ManagedLink { VaultGuid = vault, ItemGuid = item, RevisionGuid = NullIfEmpty(Safe(() => found.GetState_ItemRevisionGUID())) };
+            }
+        }
+
+        foreach (IPCB_Primitive child in ctx.IterateGroup(found, full ? null : new TObjectSet(TObjectId.ePadObject)))
         {
             TObjectId id = Safe(() => child.GetState_ObjectID());
             if (id == TObjectId.ePadObject && child is IPCB_Pad pad)
             {
-                d.Pads.Add(ToPad(ctx, pad, false));
+                d.Pads.Add(ToPad(ctx, pad, false, geometry: full));
                 continue;
             }
 
-            string type = TypeName(id);
-            d.PrimitiveCounts[type] = d.PrimitiveCounts.TryGetValue(type, out int n) ? n + 1 : 1;
+            if (d.PrimitiveCounts != null)
+            {
+                string type = TypeName(id);
+                d.PrimitiveCounts[type] = d.PrimitiveCounts.TryGetValue(type, out int n) ? n + 1 : 1;
+            }
         }
 
         d.Pads.Sort((a, b) => SchematicQueries.NaturalCompare(a.Name, b.Name));
@@ -235,11 +264,12 @@ internal sealed partial class PcbQueries
 
     public PcbNetDetail GetNet(GetPcbNetParams? p)
     {
-        if (p == null || string.IsNullOrWhiteSpace(p.Net))
+        if (p == null || InputNormalizer.Optional(p.Net) == null)
         {
             throw new BridgeException(BridgeErrorCodes.InvalidParams, "'net' is required.");
         }
 
+        p.Net = InputNormalizer.Optional(p.Net)!;
         var ctx = BoardContext.Resolve(p.DocumentPath, p.LoadIfClosed);
         IPCB_Net? net = null;
         foreach (IPCB_Primitive prim in ctx.Iterate(new TObjectSet(TObjectId.eNetObject), TIterationMethod.eProcessAll))
@@ -258,7 +288,21 @@ internal sealed partial class PcbQueries
         }
 
         string name = Safe(() => net.GetState_Name()) ?? p.Net;
+        string level = ParseDetail(p.Detail);
         var d = new PcbNetDetail { DocumentPath = ctx.Path, Summary = ToNetSummary(net, CountUnroutedByNet(ctx)) };
+        if (CrossProbeService.ShouldProbe(p.CrossProbe))
+        {
+            string probePath = ctx.Path;
+            d.CrossProbe = CrossProbeService.Request($"PCB net {name}",
+                () => Select(new SelectParams { DocumentPath = probePath, Nets = new List<string> { name }, ClearFirst = true, ZoomTo = true, Focus = true }));
+        }
+
+        if (level == DetailLevel.Summary)
+        {
+            return d;
+        }
+
+        d.Pads = new List<PcbPadInfo>();
         var layers = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
         double length = 0;
 
@@ -274,7 +318,7 @@ internal sealed partial class PcbQueries
             switch (Safe(() => prim.GetState_ObjectID()))
             {
                 case TObjectId.ePadObject when prim is IPCB_Pad pad:
-                    d.Pads.Add(ToPad(ctx, pad, true));
+                    d.Pads.Add(ToPad(ctx, pad, true, geometry: level == DetailLevel.Full));
                     break;
                 case TObjectId.eTrackObject when prim is IPCB_Track t:
                     d.TrackCount++;
@@ -453,27 +497,45 @@ internal sealed partial class PcbQueries
         };
     }
 
-    private static PcbPadInfo ToPad(BoardContext ctx, IPCB_Pad pad, bool includeDescriptor)
+    private static PcbPadInfo ToPad(BoardContext ctx, IPCB_Pad pad, bool includeDescriptor, bool geometry = true)
     {
         IPCB_Net? net = Safe(() => pad.GetState_Net());
-        int hole = Safe(() => pad.GetState_HoleSize());
-        TV6_Layer layer = Safe(() => pad.GetState_Layer());
-        return new PcbPadInfo
+        var info = new PcbPadInfo
         {
             Name = Safe(() => pad.GetState_Name()) ?? string.Empty,
             Net = net == null ? null : NullIfEmpty(Safe(() => net.GetState_Name())),
-            X = ctx.X(Safe(() => pad.GetState_XLocation())),
-            Y = ctx.Y(Safe(() => pad.GetState_YLocation())),
-            Rotation = Math.Round(Safe(() => pad.GetState_Rotation()), 3),
-            Layer = ctx.LayerName(layer),
-            IsSurfaceMount = Safe(() => pad.IsSurfaceMount()),
-            Shape = EnumName(Safe(() => pad.GetState_TopShape().ToString())),
-            SizeXMils = Mils(Safe(() => pad.GetState_TopXSize())),
-            SizeYMils = Mils(Safe(() => pad.GetState_TopYSize())),
-            HoleSizeMils = hole > 0 ? Mils(hole) : null,
-            Plated = hole > 0 && Safe(() => pad.GetState_Plated()),
             PinDescriptor = includeDescriptor ? NullIfEmpty(Safe(() => pad.GetState_PinDescriptorString())) : null,
         };
+        if (!geometry)
+        {
+            return info;
+        }
+
+        int hole = Safe(() => pad.GetState_HoleSize());
+        TV6_Layer layer = Safe(() => pad.GetState_Layer());
+        info.X = ctx.X(Safe(() => pad.GetState_XLocation()));
+        info.Y = ctx.Y(Safe(() => pad.GetState_YLocation()));
+        info.Rotation = Math.Round(Safe(() => pad.GetState_Rotation()), 3);
+        info.Layer = ctx.LayerName(layer);
+        info.IsSurfaceMount = Safe(() => pad.IsSurfaceMount());
+        info.Shape = EnumName(Safe(() => pad.GetState_TopShape().ToString()));
+        info.SizeXMils = Mils(Safe(() => pad.GetState_TopXSize()));
+        info.SizeYMils = Mils(Safe(() => pad.GetState_TopYSize()));
+        info.HoleSizeMils = hole > 0 ? Mils(hole) : null;
+        info.Plated = hole > 0 && Safe(() => pad.GetState_Plated());
+        return info;
+    }
+
+    private static string ParseDetail(string? value)
+    {
+        try
+        {
+            return DetailLevel.Normalize(value);
+        }
+        catch (ArgumentException ex)
+        {
+            throw new BridgeException(BridgeErrorCodes.InvalidParams, ex.Message);
+        }
     }
 
     private static PcbNetSummary ToNetSummary(IPCB_Net net, IReadOnlyDictionary<string, int> unroutedByNet)
@@ -690,54 +752,26 @@ internal sealed partial class PcbQueries
 
         public static BoardContext Resolve(string? documentPath, bool loadIfClosed)
         {
+            // Path validation / project-context resolution happens before any PCB server call (no modal dialogs).
+            ResolvedDocument target = DocumentResolver.Resolve(documentPath, DocumentResolver.Pcb);
+            string path = target.FullPath;
             IPCB_ServerInterface pcb = PcbServer;
-            IPCB_Board? board;
-            string path;
             bool loaded = false;
 
-            if (string.IsNullOrWhiteSpace(documentPath))
+            IPCB_Board? board = Safe(() => pcb.GetPCBBoardByPath(path));
+            if (board == null)
             {
-                board = Safe(() => pcb.GetCurrentPCBBoard());
+                if (!loadIfClosed)
+                {
+                    throw new BridgeException(BridgeErrorCodes.DocumentNotOpen, $"Board is not open in the editor: '{path}'. Pass loadIfClosed=true to load it hidden.");
+                }
+
+                board = Safe(() => pcb.LoadPCBBoardByPath(path));
+                loaded = board != null;
                 if (board == null)
                 {
-                    throw new BridgeException(BridgeErrorCodes.DocumentNotOpen, "No PCB document is active in the editor. Pass documentPath explicitly.",
-                        new Dictionary<string, string> { ["hint"] = "Use project.getStructure to list .PcbDoc paths of the project." });
-                }
-
-                path = Safe(() => board.GetState_FileName()) ?? string.Empty;
-            }
-            else
-            {
-                path = documentPath;
-                try
-                {
-                    path = System.IO.Path.GetFullPath(documentPath);
-                }
-                catch
-                {
-                    // keep as given
-                }
-
-                board = Safe(() => pcb.GetPCBBoardByPath(path));
-                if (board == null)
-                {
-                    if (!File.Exists(path))
-                    {
-                        throw new BridgeException(BridgeErrorCodes.DocumentNotFound, $"PCB file not found: '{path}'.",
-                            new Dictionary<string, string> { ["hint"] = "Use project.getStructure for exact document paths." });
-                    }
-
-                    if (!loadIfClosed)
-                    {
-                        throw new BridgeException(BridgeErrorCodes.DocumentNotOpen, $"Board is not open in the editor: '{path}'. Pass loadIfClosed=true to load it hidden.");
-                    }
-
-                    board = Safe(() => pcb.LoadPCBBoardByPath(path));
-                    loaded = board != null;
-                    if (board == null)
-                    {
-                        throw new BridgeException(BridgeErrorCodes.Internal, $"Altium could not load the PCB '{path}'.");
-                    }
+                    throw new BridgeException(BridgeErrorCodes.AltiumApiError, $"Altium could not load the PCB '{path}'.",
+                        new Dictionary<string, string> { ["hint"] = "The file exists but the PCB editor rejected it (corrupt, locked, or not a board)." });
                 }
             }
 

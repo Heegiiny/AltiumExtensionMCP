@@ -20,8 +20,8 @@ internal sealed partial class PcbQueries
         var notes = new List<string>();
 
         // Show the document first so the selection is visible and the board has a graphical view to zoom.
-        string? path = string.IsNullOrWhiteSpace(p.DocumentPath) ? null : System.IO.Path.GetFullPath(p.DocumentPath);
-        if (path != null && File.Exists(path) && p.Focus)
+        string path = DocumentResolver.Resolve(p.DocumentPath, DocumentResolver.Pcb).FullPath;
+        if (p.Focus)
         {
             EditorCommands.Show(path, "PCB", true);
         }

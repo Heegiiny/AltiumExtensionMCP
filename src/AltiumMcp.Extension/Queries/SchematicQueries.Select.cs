@@ -19,8 +19,8 @@ internal sealed partial class SchematicQueries
         p ??= new SelectParams();
         var notes = new List<string>();
 
-        string? path = string.IsNullOrWhiteSpace(p.DocumentPath) ? null : System.IO.Path.GetFullPath(p.DocumentPath);
-        if (path != null && File.Exists(path) && p.Focus)
+        string path = DocumentResolver.Resolve(p.DocumentPath, DocumentResolver.Sch).FullPath;
+        if (p.Focus)
         {
             EditorCommands.Show(path, "SCH", true);
         }
@@ -49,6 +49,26 @@ internal sealed partial class SchematicQueries
         var compKeys = Distinct(p.Components).ToList();
         if (compKeys.Count > 0)
         {
+            // Physical designators (post-annotation "U2" while the sheet says "U3") and compiled hierarchical ids
+            // ("\A\B\PGMTOHJG") live in the compiled model only, so map each key to the sheet-level aliases it denotes.
+            Dictionary<string, List<CompiledComponentRef>> compiled = CompiledComponentsOfSheet(docPath);
+            var aliases = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+            foreach (string key in compKeys)
+            {
+                var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { key };
+                if (key.Contains('\\')) set.Add(key[(key.LastIndexOf('\\') + 1)..]);
+                foreach (CompiledComponentRef r in compiled.Values.SelectMany(l => l))
+                {
+                    if (Eq(r.PhysicalDesignator, key) || Eq(r.UniqueId, key))
+                    {
+                        set.Add(r.UniqueIdTail);
+                        if (!string.IsNullOrEmpty(r.LogicalDesignator)) set.Add(r.LogicalDesignator!);
+                    }
+                }
+
+                aliases[key] = set;
+            }
+
             var found = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (ISch_BasicContainer o in Iterate(doc, new TObjectSet(TObjectId.eSchComponent), TIterationDepth.eIterateFirstLevel))
             {
@@ -64,7 +84,8 @@ internal sealed partial class SchematicQueries
                 bool added = false;
                 foreach (string key in compKeys)
                 {
-                    if (Eq(logical, key) || Eq(physical, key) || Eq(part, key) || Eq(partAlt, key) || Eq(uid, key))
+                    HashSet<string> keys = aliases[key];
+                    if (keys.Any(k => Eq(logical, k) || Eq(physical, k) || Eq(part, k) || Eq(partAlt, k) || Eq(uid, k)))
                     {
                         found.Add(key);
                         if (!added)

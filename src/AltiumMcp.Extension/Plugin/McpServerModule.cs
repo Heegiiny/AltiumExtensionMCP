@@ -205,17 +205,24 @@ public sealed class McpServerModule : ServerModule
 
         _router.Register(BridgeMethods.SystemPing, _ => system.Ping());
         _router.Register(BridgeMethods.SystemGetEnvironment, _ => system.GetEnvironment());
+        _router.Register(BridgeMethods.SystemGetSettings, _ => system.GetSettings());
+        _router.Register<SetSettingsParams>(BridgeMethods.SystemSetSettings, p => system.SetSettings(p));
 
         _router.Register(BridgeMethods.WorkspaceGetInfo, _ => workspace.GetInfo());
         _router.Register(BridgeMethods.WorkspaceListProjects, _ => workspace.ListProjects());
         _router.Register(BridgeMethods.WorkspaceListOpenDocuments, _ => workspace.ListOpenDocuments());
         _router.Register<OpenDocumentParams>(BridgeMethods.WorkspaceOpenDocument, p => workspace.OpenDocument(p));
+        _router.Register<GetSelectionParams>(BridgeMethods.WorkspaceGetSelection, p => workspace.GetSelection(p));
 
         _router.Register<ProjectQueryParams>(BridgeMethods.ProjectGetStructure, p => project.GetStructure(p));
+        _router.Register<GetAgentDocsParams>(BridgeMethods.ProjectGetAgentDocs, p => project.GetAgentDocs(p));
         _router.Register<ListComponentsParams>(BridgeMethods.ProjectListComponents, p => project.ListComponents(p));
         _router.Register<GetComponentParams>(BridgeMethods.ProjectGetComponent, p => project.GetComponent(p));
+        _router.Register<GetComponentParams>(BridgeMethods.ProjectGetComponents, p => project.GetComponents(p));
         _router.Register<ListNetsParams>(BridgeMethods.ProjectListNets, p => project.ListNets(p));
         _router.Register<GetNetParams>(BridgeMethods.ProjectGetNet, p => project.GetNet(p));
+        _router.Register<GetNetParams>(BridgeMethods.ProjectGetNets, p => project.GetNets(p));
+        _router.Register<TraceParams>(BridgeMethods.ProjectTrace, p => project.Trace(p));
 
         var sch = new SchematicQueries();
         _router.Register<SheetQueryParams>(BridgeMethods.SchGetSheet, p => sch.GetSheet(p));

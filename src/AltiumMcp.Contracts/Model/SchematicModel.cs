@@ -90,6 +90,10 @@ public sealed class GetSchComponentParams
     /// or — when the owning project is compiled — the physical designator / compiled UniqueId from project.*.
     /// </summary>
     public string Component { get; set; } = string.Empty;
+    /// <summary>summary | connectivity (default: identity + pins with hidden nets) | full (parameters, models, managed links, geometry).</summary>
+    public string? Detail { get; set; }
+    /// <summary>Per-call override of the "Follow MCP queries in Altium" setting (select + zoom to the symbol).</summary>
+    public bool? CrossProbe { get; set; }
 }
 
 public sealed class SchComponentDetail
@@ -119,11 +123,16 @@ public sealed class SchComponentDetail
     public int PartCount { get; set; }
     public int CurrentPartId { get; set; }
     public int DisplayMode { get; set; }
-    /// <summary>Managed component (Workspace / Content Vault) links, if the part is managed.</summary>
+    /// <summary>Managed component (Workspace / Content Vault) links, if the part is managed — full only.</summary>
     public ManagedLink? Managed { get; set; }
-    public Dictionary<string, SchParameterInfo> Parameters { get; set; } = new();
-    public List<SchPinInfo> Pins { get; set; } = new();
-    public List<ImplementationInfo> Implementations { get; set; } = new();
+    /// <summary>Parameters — full only (connectivity keeps only Value-like visible parameters out; use full for all).</summary>
+    public Dictionary<string, SchParameterInfo>? Parameters { get; set; }
+    /// <summary>Pins (connectivity, full). Geometry per pin only at full.</summary>
+    public List<SchPinInfo>? Pins { get; set; }
+    /// <summary>Models — full only.</summary>
+    public List<ImplementationInfo>? Implementations { get; set; }
+    /// <summary>"scheduled" when the call queued a cross probe (select + zoom) to this symbol.</summary>
+    public string? CrossProbe { get; set; }
 }
 
 public sealed class ManagedLink
@@ -152,9 +161,10 @@ public sealed class SchPinInfo
     public bool IsHidden { get; set; }
     /// <summary>Hidden power pins connect to this net implicitly.</summary>
     public string? HiddenNetName { get; set; }
-    public double X { get; set; }
-    public double Y { get; set; }
-    public int Rotation { get; set; }
-    public double LengthMils { get; set; }
+    /// <summary>Geometry (full detail only).</summary>
+    public double? X { get; set; }
+    public double? Y { get; set; }
+    public int? Rotation { get; set; }
+    public double? LengthMils { get; set; }
     public string? Description { get; set; }
 }

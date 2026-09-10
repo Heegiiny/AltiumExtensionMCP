@@ -38,19 +38,23 @@ public sealed class SchematicTools
         [Description("Pagination offset (default 0).")] int offset = 0,
         [Description("Max items (default 200, max 2000). Wires with many vertices are verbose; page through.")] int limit = 200,
         [Description("Load the sheet hidden if it is not open (default true).")] bool loadIfClosed = true,
+        [Description("Optional field projection on the items (camelCase names, e.g. [\"id\",\"type\",\"text\"]); saves tokens.")] string[]? fields = null,
         CancellationToken ct = default) =>
         ToolResults.Run(() => _bridge.CallAsync(BridgeMethods.SchListObjects,
-            new ListSheetObjectsParams { DocumentPath = documentPath, Types = types, Filter = filter, Offset = offset, Limit = limit, LoadIfClosed = loadIfClosed }, ct));
+            new ListSheetObjectsParams { DocumentPath = documentPath, Types = types, Filter = filter, Offset = offset, Limit = limit, LoadIfClosed = loadIfClosed }, ct), fields);
 
     [McpServerTool(Name = "altium_get_sheet_component", ReadOnly = true, Idempotent = true, OpenWorld = false, Title = "Get schematic component (sheet level)")]
-    [Description("Returns one component as placed on a schematic sheet: designator (logical + physical), compiledIds (the project.* ids of its compiled instances), comment, description, library reference, design item id, managed-content GUIDs, position/rotation/mirroring in mils, part count, all parameters with visibility flags, every pin with number/name/electrical type/part id/position/hidden-net, and model implementations. Use altium_get_component (compiled model) instead when you need the nets a pin connects to.")]
+    [Description("Returns one component as placed on a schematic sheet: designator (logical + physical), compiledIds (the project.* ids of its compiled instances), comment, description, library reference, position/rotation in mils, part count and (detail=connectivity, default) pins with number/name/electrical type/hidden net. detail=full adds all parameters with visibility flags, model implementations, managed-content GUIDs, design item id, bounds and per-pin geometry. Use altium_get_component (compiled model) when you need the nets a pin connects to. documentPath may be omitted when the focused project has one sheet or the active editor sheet belongs to it; otherwise pass the .SchDoc path or bare file name.")]
     public Task<CallToolResult> GetComponent(
         [Description("Designator as drawn on the sheet (e.g. 'U2'; 'U2A' also works for multi-part symbols), the sheet UniqueId (from altium_list_sheet_objects), or — when the project is compiled — the physical designator / compiled id from altium_list_components.")] string component,
-        [Description("Full path of the .SchDoc. Omit for the active editor sheet.")] string? documentPath = null,
+        [Description("Full path (or bare file name) of the .SchDoc. Omit for the project's sheet / active editor sheet.")] string? documentPath = null,
+        [Description("'summary' | 'connectivity' (default) | 'full'.")] string? detail = null,
+        [Description("Cross probe override: true = open the sheet, select and zoom to the symbol even if 'Follow MCP queries' is off; false = never; omit = follow the setting.")] bool? crossProbe = null,
         [Description("Load the sheet hidden if it is not open (default true).")] bool loadIfClosed = true,
+        [Description("Optional field projection (camelCase names).")] string[]? fields = null,
         CancellationToken ct = default) =>
         ToolResults.Run(() => _bridge.CallAsync(BridgeMethods.SchGetComponent,
-            new GetSchComponentParams { DocumentPath = documentPath, Component = component, LoadIfClosed = loadIfClosed }, ct));
+            new GetSchComponentParams { DocumentPath = documentPath, Component = component, Detail = detail, CrossProbe = crossProbe, LoadIfClosed = loadIfClosed }, ct), fields);
 
     [McpServerTool(Name = "altium_select_on_sheet", ReadOnly = false, Idempotent = true, Destructive = false, OpenWorld = false, Title = "Select objects in the schematic editor")]
     [Description("Highlights objects on a schematic sheet so the engineer sees what you refer to: components by designator ('U2' = all parts, 'U2A' = one part, physical 'U2_1', or sheet UniqueId), nets by name (selects the net labels, ports, power objects, sheet entries and cross-sheet connectors carrying that name — wires are not net-aware on the sheet), and any objects by UniqueId from altium_list_sheet_objects. Opens/focuses the sheet, clears the previous selection (unless clearFirst=false) and zooms to the selection. Returns matched/unmatched targets, selected count and bounds in mils. Editor state only — design data is not modified. Call with no targets to clear the selection.")]

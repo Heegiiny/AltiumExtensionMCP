@@ -17,6 +17,8 @@ public sealed class BridgePanelForm : ServerPanelForm
     private readonly TextBox _log = new();
     private readonly Button _copyUrl = new();
     private readonly Button _restart = new();
+    private readonly CheckBox _follow = new();
+    private bool _syncingFollow;
     private readonly Func<string> _statusText;
     private readonly Action _restartBridge;
     private string _url = string.Empty;
@@ -27,6 +29,29 @@ public sealed class BridgePanelForm : ServerPanelForm
         _restartBridge = restartBridge;
         InitializeComponent();
         BridgeLog.LineWritten += OnLogLine;
+        BridgeSettings.Changed += OnSettingsChanged;
+    }
+
+    private void OnSettingsChanged(Contracts.Model.BridgeSettingsInfo s)
+    {
+        if (IsDisposed)
+        {
+            return;
+        }
+
+        try
+        {
+            _syncingFollow = true;
+            _follow.Checked = s.FollowMcpQueries;
+        }
+        catch
+        {
+            // ignore — UI may be tearing down
+        }
+        finally
+        {
+            _syncingFollow = false;
+        }
     }
 
     public void SetUrl(string url) => _url = url;
@@ -90,6 +115,38 @@ public sealed class BridgePanelForm : ServerPanelForm
         refresh.Click += (_, _) => RefreshStatus();
         buttons.Controls.AddRange(new Control[] { _copyUrl, _restart, refresh });
 
+        // Cross Probe: when checked, component/net lookups made through MCP select and zoom to the object in the
+        // editor (editor state only; documents are never modified). Persisted in settings.json.
+        var options = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 28, Padding = new Padding(6, 4, 4, 2) };
+        _follow.Text = "Follow MCP queries in Altium (cross probe)";
+        _follow.AutoSize = true;
+        try
+        {
+            _follow.Checked = BridgeSettings.FollowMcpQueries;
+        }
+        catch
+        {
+            // settings unreadable → default off
+        }
+
+        _follow.CheckedChanged += (_, _) =>
+        {
+            if (_syncingFollow)
+            {
+                return;
+            }
+
+            try
+            {
+                BridgeSettings.FollowMcpQueries = _follow.Checked;
+            }
+            catch (Exception ex)
+            {
+                BridgeLog.Error("Saving the cross-probe setting failed", ex);
+            }
+        };
+        options.Controls.Add(_follow);
+
         _log.Dock = DockStyle.Fill;
         _log.Multiline = true;
         _log.ReadOnly = true;
@@ -99,6 +156,7 @@ public sealed class BridgePanelForm : ServerPanelForm
         _log.Text = string.Join(Environment.NewLine, BridgeLog.GetRecent());
 
         Controls.Add(_log);
+        Controls.Add(options);
         Controls.Add(buttons);
         Controls.Add(_status);
         ResumeLayout(false);
@@ -144,6 +202,7 @@ public sealed class BridgePanelForm : ServerPanelForm
         if (disposing)
         {
             BridgeLog.LineWritten -= OnLogLine;
+            BridgeSettings.Changed -= OnSettingsChanged;
         }
 
         base.Dispose(disposing);
